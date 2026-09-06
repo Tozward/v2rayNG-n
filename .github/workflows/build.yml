@@ -40,6 +40,7 @@ jobs:
         sed -i '10i\
         \
             ndkVersion = "29.0.14206865"' ${{ github.workspace }}/V2rayNG/app/build.gradle.kts
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
 
     - name: Restore cached libhevtun
       id: cache-libhevtun-restore
@@ -64,21 +65,27 @@ jobs:
       run: |
         cp -r ${{ github.workspace }}/libs ${{ github.workspace }}/V2rayNG/app
 
-    - name: Fetch AndroidLibXrayLite tag
-      run: |
-        pushd AndroidLibXrayLite
-        CURRENT_TAG=$(git describe --tags --abbrev=0)
-        echo "Current tag in this repo: $CURRENT_TAG"
-        echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
-        popd
-
-    - name: Download libv2ray
-      uses: robinraju/release-downloader@v1.13
+    - name: Setup Go 1.27 for native Core
+      uses: actions/setup-go@v6
       with:
-        repository: '2dust/AndroidLibXrayLite'
-        tag: ${{ env.CURRENT_TAG }}
-        fileName: 'libv2ray.aar'
-        out-file-path: V2rayNG/app/libs/
+        go-version: '1.27.x'
+
+    - name: Build libv2ray with Go 1.27 for armeabi-v7a
+      working-directory: AndroidLibXrayLite
+      run: |
+        go version
+        go install golang.org/x/mobile/cmd/gomobile@latest
+        export PATH="$(go env GOPATH)/bin:$PATH"
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+        gomobile init
+        go mod tidy
+        gomobile bind -v -target=android/arm -androidapi 24 \
+          -trimpath \
+          -ldflags='-s -w -buildid= -checklinkname=0' ./
+
+        mkdir -p ../V2rayNG/app/libs
+        cp libv2ray.aar ../V2rayNG/app/libs/libv2ray.aar
 
     - name: Setup Java
       uses: actions/setup-java@v6.0.0
@@ -99,35 +106,19 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
-    
-    - name: Upload arm64-v8a APK
+        ./gradlew :app:assembleFdroidRelease \
+          -PABI_FILTERS=armeabi-v7a \
+          -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} \
+          -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} \
+          -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} \
+          -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
+       
+    - name: Upload signed TV APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
       with:
-        name: arm64-v8a
-        path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
-
-    - name: Upload armeabi-v7a APK
-      uses: actions/upload-artifact@v7
-      if: ${{  success() }}
-      with:
-        name: armeabi-v7a
-        path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
-
-    - name: Upload x86 APK
-      uses: actions/upload-artifact@v7
-      if: ${{  success() }}
-      with:
-        name: x86-apk
-        path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*x86*.apk
-
-    - name: Upload universal APK
-      uses: actions/upload-artifact@v7
-      if: ${{ success() }}
-      with:
-        name: universal-apk
-        path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*universal*.apk
+        name: v2rayNG-tv-go127-armeabi-v7a
+        path: V2rayNG/app/build/outputs/apk/fdroid/release/*armeabi-v7a*.apk
+        if-no-files-found: error
 
   sign-and-release:
     needs: build
