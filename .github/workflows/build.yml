@@ -78,6 +78,10 @@ jobs:
         export PATH="$(go env GOPATH)/bin:$PATH"
         echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+        mkdir -p assets data
+        bash gen_assets.sh download
+        cp -v data/*.dat assets/
+
         gomobile init
         go mod tidy
         gomobile bind -v -target=android/arm -androidapi 24 \
