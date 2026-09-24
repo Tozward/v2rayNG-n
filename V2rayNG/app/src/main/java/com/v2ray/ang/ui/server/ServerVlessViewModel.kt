@@ -11,15 +11,19 @@ class ServerVlessViewModel(private val savedStateHandle: SavedStateHandle) : Vie
         private const val TESTPRE_INPUT = "testpreInput"
     }
 
+    // getStateFlow inserts its default value, so check for restored input before creating it.
+    private val hasRestoredTestpreInput = savedStateHandle.contains(TESTPRE_INPUT)
+    private var initialized = false
     val testpreInput = savedStateHandle.getStateFlow(TESTPRE_INPUT, "")
 
     private val _testpreError = MutableStateFlow(false)
     val testpreError = _testpreError.asStateFlow()
 
     fun initialize(testpre: Int?) {
-        if (!savedStateHandle.contains(TESTPRE_INPUT)) {
+        if (!initialized && !hasRestoredTestpreInput) {
             savedStateHandle[TESTPRE_INPUT] = testpre?.toString() ?: ""
         }
+        initialized = true
     }
 
     fun updateTestpre(input: String) {
