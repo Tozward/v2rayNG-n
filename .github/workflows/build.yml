@@ -94,6 +94,11 @@ jobs:
         encodedString: ${{ secrets.APP_KEYSTORE_BASE64 }}
 
     - name: Build APK
+      env:
+        ANDROID_KEYSTORE_FILE: ${{ steps.android_keystore.outputs.filePath }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
       run: |
         cd ${{ github.workspace }}/V2rayNG
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
@@ -101,7 +106,11 @@ jobs:
         ./gradlew licenseFdroidReleaseReport
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
-        ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
+        ./gradlew assembleRelease \
+          "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
+          "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
+          "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
+          "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
     
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
