@@ -177,7 +177,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          NOTES="Keeps optional VLESS Vision testpre pre-connections (1–16). Uses passive best-network monitoring on Android 12+, cancels stale handovers, and waits for native shutdown before closing the VPN interface. APKs are signed with this fork's Android keystore."
+          NOTES="Keeps optional VLESS Vision testpre pre-connections (1–16). Uses passive best-network monitoring on Android 12+, cancels stale handovers, and waits for native shutdown before closing the VPN interface. Speeds up per-app listing and applies searches entered while apps are loading. APKs are signed with this fork's Android keystore."
           if test -f release-files/v2rayN-public-key.asc; then
             NOTES="$NOTES Detached GPG signatures are included."
           else
