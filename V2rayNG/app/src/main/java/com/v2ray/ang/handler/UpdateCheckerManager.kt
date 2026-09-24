@@ -8,14 +8,18 @@ import com.v2ray.ang.dto.GitHubRelease
 import com.v2ray.ang.dto.UrlContentRequest
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
+import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -143,7 +147,8 @@ object UpdateCheckerManager {
     suspend fun downloadApk(
         cacheDir: File,
         update: CheckUpdateResult,
-        onProgress: (Int) -> Unit
+        onProgress: (Int) -> Unit,
+        allowProxyFallback: Boolean = true
     ): File = withContext(Dispatchers.IO) {
         val url = update.downloadUrl ?: throw IOException("Missing release asset")
         val expectedDigest = update.assetDigest?.takeIf { it.matches(digestPattern) }
@@ -154,55 +159,89 @@ object UpdateCheckerManager {
         if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Could not create update cache")
         val pending = File(updateDir, "pending.apk")
         val ready = File(updateDir, "update.apk")
-        val client = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(5, TimeUnit.MINUTES)
-            .followRedirects(true)
-            .build()
+        val clients = mutableListOf(downloadClient())
+        if (allowProxyFallback) {
+            val port = SettingsManager.getHttpPort()
+            if (port > 0) clients += downloadClient(
+                port,
+                SettingsManager.getSocksUsername(),
+                SettingsManager.getSocksPassword()
+            )
+        }
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/octet-stream")
             .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
             .build()
+        var lastFailure: IOException? = null
         try {
-            val hash = MessageDigest.getInstance("SHA-256")
-            var received = 0L
-            var lastProgress = -1
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
-                val body = response.body
-                body.byteStream().use { input ->
-                    pending.outputStream().use { output ->
-                        val buffer = ByteArray(32 * 1024)
-                        while (true) {
-                            currentCoroutineContext().ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            output.write(buffer, 0, count)
-                            hash.update(buffer, 0, count)
-                            received += count
-                            if (received > expectedSize) throw IOException("Release size exceeded")
-                            val progress = (received * 100 / expectedSize).toInt()
-                            if (progress != lastProgress) {
-                                lastProgress = progress
-                                onProgress(progress)
+            for ((index, client) in clients.withIndex()) {
+                currentCoroutineContext().ensureActive()
+                onProgress(0)
+                try {
+                    val hash = MessageDigest.getInstance("SHA-256")
+                    var received = 0L
+                    var lastProgress = -1
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
+                        response.body.byteStream().use { input ->
+                            pending.outputStream().use { output ->
+                                val buffer = ByteArray(32 * 1024)
+                                while (true) {
+                                    currentCoroutineContext().ensureActive()
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                    hash.update(buffer, 0, count)
+                                    received += count
+                                    if (received > expectedSize) throw IOException("Release size exceeded")
+                                    val progress = (received * 100 / expectedSize).toInt()
+                                    if (progress != lastProgress) {
+                                        lastProgress = progress
+                                        onProgress(progress)
+                                    }
+                                }
                             }
                         }
                     }
+                    if (received != expectedSize) throw IOException("Release size mismatch")
+                    val actualDigest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                    if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
+                        throw IOException("Release digest mismatch")
+                    }
+                    if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
+                    if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
+                    return@withContext ready
+                } catch (error: IOException) {
+                    lastFailure = error
+                    if (index < clients.lastIndex) {
+                        LogUtil.e(AppConfig.TAG, "Direct update download failed; retrying through local proxy", error)
+                    }
                 }
             }
-            if (received != expectedSize) throw IOException("Release size mismatch")
-            val actualDigest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-            if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
-                throw IOException("Release digest mismatch")
-            }
-            if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
-            if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
-            ready
-        } catch (error: Throwable) {
+            throw lastFailure ?: IOException("Release download failed")
+        } finally {
             pending.delete()
-            throw error
         }
+    }
+
+    private fun downloadClient(port: Int = 0, username: String? = null, password: String? = null): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.MINUTES)
+            .followRedirects(true)
+        if (port > 0) {
+            builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(AppConfig.LOOPBACK, port)))
+            if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+                builder.proxyAuthenticator { _, response ->
+                    if (response.request.header("Proxy-Authorization") != null) null
+                    else response.request.newBuilder()
+                        .header("Proxy-Authorization", Credentials.basic(username, password))
+                        .build()
+                }
+            }
+        }
+        return builder.build()
     }
 }

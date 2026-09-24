@@ -28,7 +28,7 @@ class CheckUpdateViewModel internal constructor(
     constructor(application: Application) : this(
         application,
         { includePreRelease -> UpdateCheckerManager.checkForUpdate(includePreRelease) },
-        UpdateCheckerManager::downloadApk
+        { cacheDir, update, onProgress -> UpdateCheckerManager.downloadApk(cacheDir, update, onProgress) }
     )
 
     private val _checkPreRelease = MutableStateFlow(
@@ -101,6 +101,7 @@ class CheckUpdateViewModel internal constructor(
         val result = _updateResult.value ?: return
         if (downloadJob?.isActive == true) return
         _showUpdateDialog.value = false
+        _pendingApk.value = null
         downloadJob = viewModelScope.launch {
             _downloadProgress.value = 0
             _statusMessage.value = null

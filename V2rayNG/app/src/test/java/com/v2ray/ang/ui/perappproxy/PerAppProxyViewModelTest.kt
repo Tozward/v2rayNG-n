@@ -110,14 +110,22 @@ class PerAppProxyViewModelTest {
         withSettingsStorage {
             mockStatic(Log::class.java).use {
                 var attempts = 0
+                val loadStarted = CompletableDeferred<Unit>()
+                val failLoad = CompletableDeferred<Unit>()
                 val model = PerAppProxyViewModel(mock<Application>(), SavedStateHandle()) {
-                    if (attempts++ == 0) throw IllegalStateException("package scan failed")
+                    if (attempts++ == 0) {
+                        loadStarted.complete(Unit)
+                        failLoad.await()
+                        throw IllegalStateException("package scan failed")
+                    }
                     sampleApps()
                 }
                 val context = appContext()
 
                 model.loadApps(context)
-                withTimeout(5_000) { model.isLoading.first { it } }
+                withTimeout(5_000) { loadStarted.await() }
+                assertTrue(model.isLoading.value)
+                failLoad.complete(Unit)
                 withTimeout(5_000) { model.isLoading.first { !it } }
                 assertTrue(model.displayedApps.value.isEmpty())
 

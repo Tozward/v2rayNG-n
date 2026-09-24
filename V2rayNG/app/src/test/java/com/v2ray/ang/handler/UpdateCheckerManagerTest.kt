@@ -100,7 +100,7 @@ class UpdateCheckerManagerTest {
         val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
         server.soTimeout = 5_000
         val responder = thread(start = true) {
-            repeat(2) {
+            repeat(3) {
                 server.accept().use { socket ->
                     val reader = socket.getInputStream().bufferedReader()
                     while (true) {
@@ -127,15 +127,26 @@ class UpdateCheckerManagerTest {
                 assetSize = bytes.size.toLong(),
                 assetDigest = actualDigest
             )
-            val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update) {}
+            val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {}, false)
             assertEquals(bytes.toList(), target.readBytes().toList())
             assertEquals("application/octet-stream", acceptHeader.get())
 
             var rejected = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update.copy(assetDigest = digest)
-                ) {}
+                    temporaryFolder.root, update.copy(assetDigest = digest), {}, false
+                )
+            } catch (_: IOException) {
+                rejected = true
+            }
+            assertTrue(rejected)
+            assertFalse(temporaryFolder.root.resolve("updates/pending.apk").exists())
+
+            rejected = false
+            try {
+                UpdateCheckerManager.downloadApk(
+                    temporaryFolder.root, update.copy(assetSize = bytes.size.toLong() + 1), {}, false
+                )
             } catch (_: IOException) {
                 rejected = true
             }

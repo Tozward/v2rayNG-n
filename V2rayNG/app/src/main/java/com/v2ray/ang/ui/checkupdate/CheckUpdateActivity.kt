@@ -105,7 +105,9 @@ class CheckUpdateActivity : BaseComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.pendingApk.collect { apk ->
-                    if (apk != null && !installAttempted) {
+                    if (apk == null) {
+                        installAttempted = false
+                    } else if (!installAttempted) {
                         installAttempted = true
                         requestInstall(apk)
                     }
