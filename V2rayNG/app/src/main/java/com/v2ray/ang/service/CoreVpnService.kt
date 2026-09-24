@@ -71,10 +71,11 @@ class CoreVpnService : VpnService(), ServiceControl {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         NotificationManager.ensureForeground()
         // Always-on VPN restarts from OS deliver intent.action == SERVICE_INTERFACE or null intent.
-        // Only reset the lock when the current service has no live tunnel. A repeated system
-        // command must not replace the descriptor underneath an already running core.
+        // A repeated system command must not replace the descriptor underneath a live core.
+        // If the native core exited, keep the existing recovery path that rebuilds the tunnel.
         val isSystemVpnStart = intent == null || intent.action == SERVICE_INTERFACE
-        if (isSystemVpnStart && !isRunning && !CoreServiceManager.isRunning()) {
+        if (isSystemVpnStart) {
+            if (lifecycle.shouldReuseRunningTunnel(isRunning, CoreServiceManager.isRunning())) return START_STICKY
             unlockStart()
         }
         if (!tryLockStart()) {
@@ -390,4 +391,7 @@ internal class VpnLifecycleGate {
     fun beginStop(): Boolean = stopping.compareAndSet(false, true)
 
     fun isStopping(): Boolean = stopping.get()
+
+    fun shouldReuseRunningTunnel(serviceRunning: Boolean, coreRunning: Boolean): Boolean =
+        !stopping.get() && serviceRunning && coreRunning
 }

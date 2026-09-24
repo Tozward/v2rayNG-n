@@ -6,6 +6,17 @@ import org.junit.Test
 
 class VpnLifecycleGateTest {
     @Test
+    fun systemRestartReusesOnlyAHealthyTunnel() {
+        val gate = VpnLifecycleGate()
+
+        assertFalse(gate.shouldReuseRunningTunnel(serviceRunning = false, coreRunning = false))
+        assertTrue(gate.shouldReuseRunningTunnel(serviceRunning = true, coreRunning = true))
+        assertFalse(gate.shouldReuseRunningTunnel(serviceRunning = true, coreRunning = false))
+        gate.beginStop()
+        assertFalse(gate.shouldReuseRunningTunnel(serviceRunning = true, coreRunning = true))
+    }
+
+    @Test
     fun normalStartAndRepeatedStartKeepOneSetup() {
         val gate = VpnLifecycleGate()
 
