@@ -94,6 +94,8 @@
     <string name="server_lab_security4">用户名 (可选)</string>
     <string name="server_lab_encryption">加密方式 (encryption)</string>
     <string name="server_lab_flow">流控 (flow)</string>
+    <string name="server_lab_testpre">预连接数量 (testpre)</string>
+    <string name="server_lab_testpre_hint">留空或填 0 表示关闭；可填 1–16，预留对应数量的空闲连接。</string>
     <string name="server_lab_public_key">PublicKey</string>
     <string name="server_lab_preshared_key">PreSharedKey（可选）</string>
     <string name="server_lab_short_id">ShortId</string>

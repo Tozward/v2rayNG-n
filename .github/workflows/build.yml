@@ -99,6 +99,8 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest
+        ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
     
     - name: Upload arm64-v8a APK
@@ -133,6 +135,8 @@ jobs:
     needs: build
     runs-on: ubuntu-26.04
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    env:
+      HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
     steps:
       - name: Download APK artifacts
@@ -140,23 +144,39 @@ jobs:
         with:
           path: release
 
-      - name: Sign APK files
+      - name: Prepare APK files
         run: |
-          printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-          KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
           mkdir -p release-files
+          find release -type f -name '*.apk' -exec cp {} release-files/ \;
+          test -n "$(find release-files -maxdepth 1 -name '*.apk' -print -quit)"
 
-          find release -type f -name '*.apk' | while read apk; do
-            cp "$apk" release-files/
+      - name: Sign APK files with GPG when configured
+        if: env.HAS_GPG_KEY == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          find release-files -type f -name '*.apk' | while read apk; do
             gpg --batch --yes --local-user "$KEY" --detach-sign --output "release-files/$(basename "$apk").sig" "$apk"
           done
 
           gpg --armor --export "$KEY" > release-files/v2rayN-public-key.asc
 
-      - name: Upload APKs, signatures and public key to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          file: release-files/*
-          tag: ${{ inputs.release_tag }}
-          file_glob: true
-          prerelease: true
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          NOTES="Adds optional testpre pre-connections (1–16) in the VLESS Vision editor. Blank or 0 disables it. APKs are signed with this fork's Android keystore."
+          if test -f release-files/v2rayN-public-key.asc; then
+            NOTES="$NOTES Detached GPG signatures are included."
+          else
+            NOTES="$NOTES Detached GPG signatures are unavailable for this release."
+          fi
+          gh release create "$RELEASE_TAG" release-files/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes "$NOTES" \
+            --prerelease

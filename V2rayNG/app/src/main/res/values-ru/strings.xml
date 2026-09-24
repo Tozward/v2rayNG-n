@@ -94,6 +94,8 @@
     <string name="server_lab_security4">Пользователь (необязательно)</string>
     <string name="server_lab_encryption">Шифрование</string>
     <string name="server_lab_flow">Режим потока (flow)</string>
+    <string name="server_lab_testpre">Предварительные соединения (testpre)</string>
+    <string name="server_lab_testpre_hint">Пусто или 0 — выкл.; 1–16 — число резервных соединений.</string>
     <string name="server_lab_public_key">Открытый ключ</string>
     <string name="server_lab_preshared_key">Дополнительный ключ шифрования (необязательно)</string>
     <string name="server_lab_short_id">ShortID</string>

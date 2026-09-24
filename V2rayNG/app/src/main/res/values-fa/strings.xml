@@ -94,6 +94,8 @@
     <string name="server_lab_security4">نام‌ کاربری (اختیاری)</string>
     <string name="server_lab_encryption">رمزنگاری</string>
     <string name="server_lab_flow">حالت جریان (flow)</string>
+    <string name="server_lab_testpre">اتصال‌های پیش‌ساخته (testpre)</string>
+    <string name="server_lab_testpre_hint">خالی یا ۰ برای خاموش؛ ۱ تا ۱۶ اتصال آماده نگه دارید.</string>
     <string name="server_lab_public_key">کلید عمومی</string>
     <string name="server_lab_preshared_key">کلید پیش‌اشتراکی (اختیاری)</string>
     <string name="server_lab_short_id">شناسه کوتاه</string>

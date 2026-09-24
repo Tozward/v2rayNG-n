@@ -94,6 +94,8 @@
     <string name="server_lab_security4">المستخدم (اختياري)</string>
     <string name="server_lab_encryption">التشفير</string>
     <string name="server_lab_flow">التدفق (flow)</string>
+    <string name="server_lab_testpre">الاتصالات المسبقة (testpre)</string>
+    <string name="server_lab_testpre_hint">اتركه فارغًا أو أدخل 0 للتعطيل؛ أدخل 1–16 لحجز اتصالات جاهزة.</string>
     <string name="server_lab_public_key">المفتاح العام</string>
     <string name="server_lab_preshared_key">PreSharedKey (اختياري)</string>
     <string name="server_lab_short_id">المعرّف القصير</string>

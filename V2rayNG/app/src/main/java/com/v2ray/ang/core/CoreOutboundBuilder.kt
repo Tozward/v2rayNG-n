@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.V2rayConfig.OutboundBean
+import com.v2ray.ang.dto.VlessTestpre
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.enums.NetworkType
@@ -145,6 +146,7 @@ object CoreOutboundBuilder {
             settings.id = profileItem.password.orEmpty()
             settings.encryption = profileItem.method
             settings.flow = profileItem.flow
+            settings.testpre = VlessTestpre.forOutbound(profileItem.flow, profileItem.testpre)
             settings.level = AppConfig.DEFAULT_LEVEL
         }
 

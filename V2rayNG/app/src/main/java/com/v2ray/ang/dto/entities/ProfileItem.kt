@@ -18,6 +18,7 @@ data class ProfileItem(
     var password: String? = null,
     var method: String? = null,
     var flow: String? = null,
+    var testpre: Int? = null,
     var username: String? = null,
 
     var network: String? = null,

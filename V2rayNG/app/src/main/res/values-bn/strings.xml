@@ -94,6 +94,8 @@
     <string name="server_lab_security4">ব্যবহারকারী (ঐচ্ছিক)</string>
     <string name="server_lab_encryption">এনক্রিপশন</string>
     <string name="server_lab_flow">প্রবাহ (flow)</string>
+    <string name="server_lab_testpre">আগাম সংযোগের সংখ্যা (testpre)</string>
+    <string name="server_lab_testpre_hint">বন্ধ রাখতে ফাঁকা বা ০; ১–১৬টি প্রস্তুত সংযোগ রাখতে সংখ্যা লিখুন।</string>
     <string name="server_lab_public_key">পাবলিক কী</string>
     <string name="server_lab_preshared_key">PreSharedKey (ঐচ্ছিক)</string>
     <string name="server_lab_short_id">শর্ট আইডি</string>

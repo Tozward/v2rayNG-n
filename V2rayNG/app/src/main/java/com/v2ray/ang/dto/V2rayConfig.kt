@@ -87,6 +87,7 @@ data class V2rayConfig(
             var encryption: String? = null,
             /*VLESS*/
             var flow: String? = null,
+            var testpre: Int? = null,
             /*Trojan/Shadowsocks*/
             var password: String? = null,
             /*Shadowsocks*/

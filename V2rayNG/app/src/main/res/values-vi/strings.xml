@@ -94,6 +94,8 @@
     <string name="server_lab_security4">Tên người dùng (Không bắt buộc)</string>
     <string name="server_lab_encryption">Mã hóa</string>
     <string name="server_lab_flow">Kiểm soát lưu lượng (flow)</string>
+    <string name="server_lab_testpre">Số kết nối tạo trước (testpre)</string>
+    <string name="server_lab_testpre_hint">Để trống hoặc nhập 0 để tắt; nhập 1–16 để giữ kết nối chờ.</string>
     <string name="server_lab_public_key">PublicKey</string>
     <string name="server_lab_preshared_key">PreSharedKey (không bắt buộc)</string>
     <string name="server_lab_short_id">ShortId</string>

@@ -94,6 +94,8 @@
     <string name="server_lab_security4">User (optional)</string>
     <string name="server_lab_encryption">encryption</string>
     <string name="server_lab_flow">flow</string>
+    <string name="server_lab_testpre">Pre-connected sockets (testpre)</string>
+    <string name="server_lab_testpre_hint">0 or blank disables; enter 1–16 to reserve idle connections.</string>
     <string name="server_lab_public_key">PublicKey</string>
     <string name="server_lab_preshared_key">PreSharedKey (optional)</string>
     <string name="server_lab_short_id">ShortId</string>

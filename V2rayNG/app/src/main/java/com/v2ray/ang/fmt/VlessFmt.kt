@@ -1,5 +1,6 @@
 package com.v2ray.ang.fmt
 
+import com.v2ray.ang.dto.VlessTestpre
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.idnHost
@@ -28,6 +29,7 @@ object VlessFmt : FmtBase() {
         config.method = queryParam["encryption"] ?: "none"
 
         getItemFormQuery(config, queryParam)
+        config.testpre = VlessTestpre.forOutbound(config.flow, VlessTestpre.parse(queryParam["testpre"]))
 
         return config
     }
@@ -41,6 +43,7 @@ object VlessFmt : FmtBase() {
     fun toUri(config: ProfileItem): String {
         val dicQuery = getQueryDic(config)
         dicQuery["encryption"] = config.method ?: "none"
+        VlessTestpre.forOutbound(config.flow, config.testpre)?.let { dicQuery["testpre"] = it.toString() }
 
         return toUri(config, config.password, dicQuery)
     }

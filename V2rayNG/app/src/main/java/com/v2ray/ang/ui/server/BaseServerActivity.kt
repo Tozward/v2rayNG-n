@@ -418,9 +418,12 @@ abstract class BaseServerActivity : BaseComponentActivity() {
         return true
     }
 
-    protected fun saveServer(state: ServerUiState): Boolean {
+    protected fun saveServer(
+        state: ServerUiState,
+        transformConfig: (ProfileItem) -> ProfileItem = { it }
+    ): Boolean {
         if (!validateBasicConfig(state)) return false
-        val config = state.toProfileItem(initialConfig)
+        val config = transformConfig(state.toProfileItem(initialConfig))
         if (!validateCommonConfig(state, config)) return false
         if (!validateProtocolConfig(config)) return false
 
