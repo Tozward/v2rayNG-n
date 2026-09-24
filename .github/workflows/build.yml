@@ -179,7 +179,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           VERSION="${RELEASE_TAG#v}"
-          grep -Fq "versionName = \"$VERSION\"" V2rayNG/app/build.gradle.kts
+          for APK in release-files/*.apk; do
+            case "$(basename "$APK")" in
+              "v2rayNG_${VERSION}_"*.apk|"v2rayNG_${VERSION}-fdroid_"*.apk) ;;
+              *) echo "APK version does not match release tag: $APK" >&2; exit 1 ;;
+            esac
+          done
           NOTES="Includes VLESS Vision testpre, VPN lifecycle and network monitoring improvements, faster per-app loading and search, in-app updates, and bounded concurrent geo-file downloads. When the current daemon is running, app and geo-file downloads use its local proxy; otherwise they connect directly. Downloads never start the VPN or change nodes. APKs are signed with this fork's Android keystore."
           if test -f release-files/v2rayN-public-key.asc; then
             NOTES="$NOTES Detached GPG signatures are included."
