@@ -157,6 +157,7 @@ object UpdateCheckerManager {
         val client = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.MINUTES)
             .followRedirects(true)
             .build()
         val request = Request.Builder()
@@ -170,7 +171,7 @@ object UpdateCheckerManager {
             var lastProgress = -1
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
-                val body = response.body ?: throw IOException("Empty release download")
+                val body = response.body
                 body.byteStream().use { input ->
                     pending.outputStream().use { output ->
                         val buffer = ByteArray(32 * 1024)

@@ -12,20 +12,28 @@ import com.v2ray.ang.ui.base.BaseViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class SettingsViewModel(application: Application) : BaseViewModel(application) {
+class SettingsViewModel internal constructor(
+    application: Application,
+    private val readAutoCheckUpdate: () -> Boolean,
+    private val saveAutoCheckUpdate: (Boolean) -> Unit
+) : BaseViewModel(application) {
 
-    private val _autoCheckUpdate = MutableStateFlow(
-        MmkvManager.decodeSettingsBool(AppConfig.PREF_AUTO_CHECK_UPDATE, true)
+    constructor(application: Application) : this(
+        application,
+        { MmkvManager.decodeSettingsBool(AppConfig.PREF_AUTO_CHECK_UPDATE, true) },
+        { enabled -> MmkvManager.encodeSettings(AppConfig.PREF_AUTO_CHECK_UPDATE, enabled) }
     )
+
+    private val _autoCheckUpdate = MutableStateFlow(readAutoCheckUpdate())
     val autoCheckUpdate = _autoCheckUpdate.asStateFlow()
 
     fun setAutoCheckUpdate(enabled: Boolean) {
         _autoCheckUpdate.value = enabled
         viewModelScope.launch(Dispatchers.IO) {
-            MmkvManager.encodeSettings(AppConfig.PREF_AUTO_CHECK_UPDATE, enabled)
+            saveAutoCheckUpdate(enabled)
         }
     }
 

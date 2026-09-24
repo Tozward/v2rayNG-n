@@ -1,6 +1,5 @@
 package com.v2ray.ang.handler
 
-import com.sun.net.httpserver.HttpServer
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
 import kotlinx.coroutines.runBlocking
@@ -11,8 +10,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.IOException
-import java.net.InetSocketAddress
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 class UpdateCheckerManagerTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
@@ -94,26 +96,40 @@ class UpdateCheckerManagerTest {
     @Test
     fun downloadChecksDigestSizeAndUsesBinaryApiHeader() = runBlocking {
         val bytes = "verified apk bytes".toByteArray()
-        var acceptHeader: String? = null
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/asset") { exchange ->
-            acceptHeader = exchange.requestHeaders.getFirst("Accept")
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+        val acceptHeader = AtomicReference<String?>(null)
+        val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
+        server.soTimeout = 5_000
+        val responder = thread(start = true) {
+            repeat(2) {
+                server.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.isEmpty()) break
+                        if (line.startsWith("Accept:", ignoreCase = true)) {
+                            acceptHeader.set(line.substringAfter(':').trim())
+                        }
+                    }
+                    socket.getOutputStream().apply {
+                        write("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        write(bytes)
+                        flush()
+                    }
+                }
+            }
         }
-        server.start()
         try {
             val actualDigest = "sha256:" + MessageDigest.getInstance("SHA-256")
                 .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
             val update = CheckUpdateResult(
                 hasUpdate = true,
-                downloadUrl = "http://127.0.0.1:${server.address.port}/asset",
+                downloadUrl = "http://127.0.0.1:${server.localPort}/asset",
                 assetSize = bytes.size.toLong(),
                 assetDigest = actualDigest
             )
             val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update) {}
             assertEquals(bytes.toList(), target.readBytes().toList())
-            assertEquals("application/octet-stream", acceptHeader)
+            assertEquals("application/octet-stream", acceptHeader.get())
 
             var rejected = false
             try {
@@ -126,7 +142,8 @@ class UpdateCheckerManagerTest {
             assertTrue(rejected)
             assertFalse(temporaryFolder.root.resolve("updates/pending.apk").exists())
         } finally {
-            server.stop(0)
+            server.close()
+            responder.join(1_000)
         }
     }
 

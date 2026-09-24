@@ -7,7 +7,13 @@ import android.content.pm.PackageManager
 import android.provider.Settings
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,8 +22,35 @@ import org.mockito.Mockito.mockConstruction
 import org.mockito.Mockito.mockStatic
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SettingsViewModelTest {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun autoCheckSwitchPersistsAndReopensDisabled() {
+        val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        Dispatchers.setMain(mainDispatcher)
+        try {
+            val stored = AtomicBoolean(true)
+            val application = mock<Application>()
+            val viewModel = SettingsViewModel(application, { stored.get() }, { stored.set(it) })
+            assertTrue(viewModel.autoCheckUpdate.value)
+            viewModel.setAutoCheckUpdate(false)
+            assertFalse(viewModel.autoCheckUpdate.value)
+            runBlocking {
+                withTimeout(5_000) {
+                    while (stored.get()) delay(10)
+                }
+            }
+            assertFalse(SettingsViewModel(application, { stored.get() }, { stored.set(it) })
+                .autoCheckUpdate.value)
+        } finally {
+            Dispatchers.resetMain()
+            mainDispatcher.close()
+        }
+    }
+
     @Test
     fun vpnSettingsVisibilityFollowsActivityAvailability() = runBlocking(Dispatchers.IO) {
         val packageManager = mock<PackageManager>()

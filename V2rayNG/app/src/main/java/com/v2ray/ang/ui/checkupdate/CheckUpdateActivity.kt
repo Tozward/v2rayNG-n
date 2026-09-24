@@ -1,6 +1,5 @@
 package com.v2ray.ang.ui.checkupdate
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -142,16 +141,13 @@ class CheckUpdateActivity : BaseComponentActivity() {
     private fun launchInstaller(apk: File) {
         try {
             val uri = FileProvider.getUriForFile(this, "$packageName.cache", apk)
-            startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                data = uri
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             })
             viewModel.consumePendingApk()
-        } catch (error: ActivityNotFoundException) {
-            LogUtil.e(AppConfig.TAG, "No APK installer available", error)
-            toastError(R.string.update_install_unavailable)
-        } catch (error: SecurityException) {
-            LogUtil.e(AppConfig.TAG, "APK installer rejected request", error)
+        } catch (error: RuntimeException) {
+            LogUtil.e(AppConfig.TAG, "Could not open APK installer", error)
             toastError(R.string.update_install_unavailable)
         }
     }

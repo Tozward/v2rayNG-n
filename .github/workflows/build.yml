@@ -106,6 +106,7 @@ jobs:
         ./gradlew licenseFdroidReleaseReport
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
+        ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug :app:lintPlaystoreDebug :app:lintFdroidDebug
         ./gradlew assembleRelease \
           "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
           "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
