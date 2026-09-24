@@ -33,7 +33,9 @@ import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -51,8 +53,12 @@ object CoreServiceManager {
     private var currentConfig: ProfileItem? = null
     private var processFinder: XrayProcessFinder? = null
     private var browserDialer: IDialerService? = null
-    private var networkMonitor: NetworkMonitor? = null
+    @Volatile private var networkMonitor: NetworkMonitor? = null
     private val connectionTestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var handoverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val coreStopScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val coreOperationLock = Any()
+    @Volatile private var handoverReloadJob: Job? = null
 
     @Volatile
     private var isReloading = false
@@ -89,26 +95,28 @@ object CoreServiceManager {
      * Starts the V2Ray core service.
      */
     fun startCoreLoop(vpnInterface: ParcelFileDescriptor?): Boolean {
-        if (isRunning()) {
-            LogUtil.w(AppConfig.TAG, "StartCore-Manager: Core already running")
-            return false
-        }
+        synchronized(coreOperationLock) {
+            if (isRunning()) {
+                LogUtil.w(AppConfig.TAG, "StartCore-Manager: Core already running")
+                return false
+            }
 
-        val service = getService()
-        if (service == null) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Service is null")
-            return false
-        }
+            val service = getService()
+            if (service == null) {
+                LogUtil.e(AppConfig.TAG, "StartCore-Manager: Service is null")
+                return false
+            }
 
-        try {
-            doStartCoreLoop(service, vpnInterface)
-            return true
-        } catch (e: Exception) {
-            val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: $message", e)
-            MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
-            NotificationManager.cancelNotification()
-            return false
+            try {
+                doStartCoreLoop(service, vpnInterface)
+                return true
+            } catch (e: Exception) {
+                val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
+                LogUtil.e(AppConfig.TAG, "StartCore-Manager: $message", e)
+                MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
+                NotificationManager.cancelNotification()
+                return false
+            }
         }
     }
 
@@ -187,43 +195,50 @@ object CoreServiceManager {
     /**
      * Stops the V2Ray core service.
      * Unregisters broadcast receivers, stops notifications, and shuts down plugins.
-     * @return True if the core was stopped successfully, false otherwise.
+     * @return The native stop job. Callers that own a tunnel descriptor must join it before closing.
      */
-    fun stopCoreLoop(): Boolean {
+    fun stopCoreLoop(): Job {
         connectionTestScope.coroutineContext.cancelChildren()
-        val service = getService() ?: return false
+        val service = getService()
 
         networkMonitor?.unregister()
         networkMonitor = null
+        handoverReloadJob?.cancel()
+        handoverReloadJob = null
+        handoverScope.cancel()
         currentVpnInterface = null
 
-        if (isRunning()) {
-            CoroutineScope(Dispatchers.IO).launch {
+        val stopJob = coreStopScope.launch {
+            synchronized(coreOperationLock) {
+                // The dialer is a native dependency of the core and must be stopped off main.
                 try {
-                    coreController.stopLoop()
+                    CoreNativeManager.reconcileBrowserDialer("")
+                    browserDialer?.stop()
                 } catch (e: Exception) {
-                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to stop V2Ray loop", e)
+                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: VPN/proxy/root stop failed to stop browser dialer", e)
+                } finally {
+                    browserDialer = null
+                }
+                try {
+                    if (isRunning()) coreController.stopLoop()
+                } catch (e: Exception) {
+                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: VPN/proxy/root stop failed to stop V2Ray loop", e)
+                } finally {
+                    if (service != null) MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
+                    NotificationManager.cancelNotification()
                 }
             }
         }
 
-        // Close existing browser dialer
-        CoreNativeManager.reconcileBrowserDialer("")
-        if (browserDialer != null) {
-            browserDialer!!.stop()
-            browserDialer = null
+        if (service != null) {
+            try {
+                service.unregisterReceiver(mMsgReceive)
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to unregister receiver", e)
+            }
         }
 
-        MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
-        NotificationManager.cancelNotification()
-
-        try {
-            service.unregisterReceiver(mMsgReceive)
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to unregister receiver", e)
-        }
-
-        return true
+        return stopJob
     }
 
     /**
@@ -236,11 +251,19 @@ object CoreServiceManager {
         if (networkMonitor != null) return
 
         val connectivity = service.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        networkMonitor = NetworkMonitor(
-            connectivity = connectivity,
-            onUnderlyingNetworksChanged = { networks -> serviceControl?.get()?.setUnderlyingNetworks(networks) },
-            onHandover = { reloadCore() },
-        ).also { it.register() }
+        if (handoverScope.coroutineContext[Job]?.isActive != true) {
+            handoverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        }
+        lateinit var monitor: NetworkMonitor
+        monitor = NetworkMonitor(connectivity) {
+            handoverReloadJob?.cancel()
+            handoverReloadJob = handoverScope.launch {
+                // A delayed callback from an old monitor must not restart a stopped core.
+                reloadCore(monitor)
+            }
+        }
+        networkMonitor = monitor
+        monitor.register()
     }
 
     /**
@@ -252,7 +275,8 @@ object CoreServiceManager {
      *
      * @return True if the core is running again.
      */
-    private fun reloadCore(): Boolean {
+    private fun reloadCore(monitor: NetworkMonitor): Boolean = synchronized(coreOperationLock) {
+        if (networkMonitor !== monitor) return false
         if (isReloading) return false
         val service = getService() ?: return false
         if (!isRunning()) return false

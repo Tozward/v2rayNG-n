@@ -104,8 +104,9 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
+        ./gradlew :app:lintPlaystoreDebug
         ./gradlew assembleRelease \
           "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
           "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \

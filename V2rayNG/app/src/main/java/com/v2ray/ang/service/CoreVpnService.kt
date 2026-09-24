@@ -26,13 +26,21 @@ import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
 import java.lang.ref.SoftReference
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 @SuppressLint("VpnServicePolicy")
 class CoreVpnService : VpnService(), ServiceControl {
-    private lateinit var mInterface: ParcelFileDescriptor
-    private var isRunning = false
+    private var mInterface: ParcelFileDescriptor? = null
+    @Volatile private var isRunning = false
     private var tun2SocksService: Tun2SocksControl? = null
-    private val isStartingLock = AtomicBoolean(false)
+    private val lifecycle = VpnLifecycleGate()
+    private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var teardownJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -53,38 +61,25 @@ class CoreVpnService : VpnService(), ServiceControl {
 //    }
 
     override fun onDestroy() {
+        // Android can destroy the service without an explicit stop command. The same
+        // teardown job then owns the tunnel, core and descriptor in their required order.
+        stopAllService(isForced = false)
         super.onDestroy()
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service destroyed")
-
-        // Ensure VPN interface is properly closed when the service is destroyed without
-        // going through stopAllService() (e.g. when killed unexpectedly). isRunning is
-        // set to false at the start of stopAllService(), so this guard prevents a double-close.
-        if (isRunning) {
-            try {
-                if (::mInterface.isInitialized) {
-                    mInterface.close()
-                    LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed in onDestroy")
-                }
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface in onDestroy", e)
-            }
-        }
-
-        unlockStart()
-        NotificationManager.cancelNotification()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         NotificationManager.ensureForeground()
         // Always-on VPN restarts from OS deliver intent.action == SERVICE_INTERFACE or null intent.
-        // Reset any stuck start lock left by a killed process to allow setupVpnService() to run.
+        // Only reset the lock when the current service has no live tunnel. A repeated system
+        // command must not replace the descriptor underneath an already running core.
         val isSystemVpnStart = intent == null || intent.action == SERVICE_INTERFACE
-        if (isSystemVpnStart) {
+        if (isSystemVpnStart && !isRunning && !CoreServiceManager.isRunning()) {
             unlockStart()
         }
         if (!tryLockStart()) {
             LogUtil.w(AppConfig.TAG, "StartCore-VPN: Start already in progress")
-            return START_NOT_STICKY
+            return if (isRunning && CoreServiceManager.isRunning()) START_STICKY else START_NOT_STICKY
         }
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received, systemVpnStart=$isSystemVpnStart")
         if (!setupVpnService()) {
@@ -94,7 +89,7 @@ class CoreVpnService : VpnService(), ServiceControl {
             return START_NOT_STICKY
         }
         startService()
-        return START_STICKY
+        return if (lifecycle.isStopping()) START_NOT_STICKY else START_STICKY
     }
 
     override fun getService(): Service {
@@ -102,11 +97,13 @@ class CoreVpnService : VpnService(), ServiceControl {
     }
 
     override fun startService() {
-        if (!::mInterface.isInitialized) {
+        val vpnInterface = mInterface
+        if (vpnInterface == null) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
+            stopAllService()
             return
         }
-        if (!CoreServiceManager.startCoreLoop(mInterface)) {
+        if (!CoreServiceManager.startCoreLoop(vpnInterface)) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to start core loop")
             stopAllService()
             return
@@ -168,11 +165,11 @@ class CoreVpnService : VpnService(), ServiceControl {
 
         // Close the old interface since the parameters have been changed
         try {
-            if (::mInterface.isInitialized) {
-                mInterface.close()
-            }
+            mInterface?.close()
         } catch (e: Exception) {
             LogUtil.w(AppConfig.TAG, "Failed to close old interface", e)
+        } finally {
+            mInterface = null
         }
 
         // Configure platform-specific features
@@ -180,7 +177,7 @@ class CoreVpnService : VpnService(), ServiceControl {
 
         // Create a new interface using the builder and save the parameters
         try {
-            mInterface = builder.establish()!!
+            mInterface = builder.establish() ?: error("VPN interface establishment returned null")
             isRunning = true
             return true
         } catch (e: Exception) {
@@ -303,10 +300,12 @@ class CoreVpnService : VpnService(), ServiceControl {
      * Starts the tun2socks process with the appropriate parameters.
      */
     private fun runTun2socks() {
+        val vpnInterface = mInterface ?: return
+        if (!isRunning || lifecycle.isStopping()) return
         if (SettingsManager.isUsingHevTun()) {
             tun2SocksService = TProxyService(
                 context = applicationContext,
-                vpnInterface = mInterface,
+                vpnInterface = vpnInterface,
                 isRunningProvider = { isRunning },
                 restartCallback = { runTun2socks() }
             )
@@ -318,55 +317,77 @@ class CoreVpnService : VpnService(), ServiceControl {
     }
 
     private fun stopAllService(isForced: Boolean = true) {
-//        val configName = defaultDPreference.getPrefString(PREF_CURR_CONFIG_GUID, "")
-//        val emptyInfo = VpnNetworkInfo()
-//        val info = loadVpnNetworkInfo(configName, emptyInfo)!! + (lastNetworkInfo ?: emptyInfo)
-//        saveVpnNetworkInfo(configName, info)
+        if (!lifecycle.beginStop()) return
         unlockStart()
         isRunning = false
-
-        tun2SocksService?.stopTun2Socks()
+        val tunnel = tun2SocksService
         tun2SocksService = null
+        val vpnInterface = mInterface
+        mInterface = null
 
-        RootLanSharing.stopClientSharing(this)
-
-        CoreServiceManager.stopCoreLoop()
-
-        if (isForced) {
-            //stopSelf has to be called ahead of mInterface.close(). otherwise v2ray core cannot be stooped
-            //It's strage but true.
-            //This can be verified by putting stopself() behind and call stopLoop and startLoop
-            //in a row for several times. You will find that later created v2ray core report port in use
-            //which means the first v2ray core somehow failed to stop and release the port.
-            stopSelf()
-
-            // Add a small delay to allow the async core stop operation to complete
-            // before closing the VPN interface, preventing a race condition that can
-            // leave the VPN icon in the status bar after stopping the service.
+        teardownJob = teardownScope.launch {
             try {
-                Thread.sleep(100)
-            } catch (e: InterruptedException) {
-                LogUtil.w(AppConfig.TAG, "StartCore-VPN: Sleep interrupted", e)
-            }
-
-            try {
-                if (::mInterface.isInitialized) {
-                    mInterface.close()
-                    LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed")
+                try {
+                    tunnel?.stopTun2Socks()
+                } catch (e: Exception) {
+                    LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to stop tun2socks", e)
                 }
+                try {
+                    RootLanSharing.stopClientSharing(this@CoreVpnService)
+                } catch (e: Exception) {
+                    LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to stop LAN sharing", e)
+                }
+                CoreServiceManager.stopCoreLoop().join()
             } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface", e)
+                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed during VPN teardown", e)
+            } finally {
+                // Keep the foreground service alive until the native stop has completed.
+                // stopSelf can trigger onDestroy before the fd is closed; the gate above
+                // prevents that callback from starting a second teardown.
+                if (isForced) {
+                    try {
+                        stopSelf()
+                    } catch (e: Exception) {
+                        LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to stop service", e)
+                    }
+                }
+                try {
+                    vpnInterface?.close()
+                    LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed")
+                } catch (e: Exception) {
+                    LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface", e)
+                }
             }
         }
+        teardownJob?.invokeOnCompletion { teardownScope.cancel() }
     }
 
     fun tryLockStart(): Boolean {
-        LogUtil.w(AppConfig.TAG, "StartCore-VPN: tryLockStart: ${isStartingLock.get()}")
-        return isStartingLock.compareAndSet(false, true)
+        return lifecycle.tryStart()
     }
 
     fun unlockStart() {
-        isStartingLock.set(false)
-        LogUtil.w(AppConfig.TAG, "StartCore-VPN: unlockStart")
+        lifecycle.releaseStart()
     }
+}
+
+/** Serializes duplicate starts with stop requests, including a stop during setup. */
+internal class VpnLifecycleGate {
+    private val starting = AtomicBoolean(false)
+    private val stopping = AtomicBoolean(false)
+
+    fun tryStart(): Boolean {
+        if (stopping.get() || !starting.compareAndSet(false, true)) return false
+        if (!stopping.get()) return true
+        starting.set(false)
+        return false
+    }
+
+    fun releaseStart() {
+        starting.set(false)
+    }
+
+    fun beginStop(): Boolean = stopping.compareAndSet(false, true)
+
+    fun isStopping(): Boolean = stopping.get()
 }
