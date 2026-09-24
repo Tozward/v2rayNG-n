@@ -29,8 +29,8 @@ object UpdateCheckerManager {
     private val versionPattern = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)((?:\\.\\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$")
     private val digestPattern = Regex("^sha256:[0-9a-fA-F]{64}$")
 
-    fun shouldAutoCheck(enabled: Boolean, lastCheckedAt: Long, now: Long): Boolean =
-        enabled && (lastCheckedAt <= 0 || now < lastCheckedAt || now - lastCheckedAt >= AUTO_CHECK_INTERVAL_MS)
+    fun shouldAutoCheck(enabled: Boolean, lastAttemptAt: Long, now: Long): Boolean =
+        enabled && (lastAttemptAt <= 0 || now < lastAttemptAt || now - lastAttemptAt >= AUTO_CHECK_INTERVAL_MS)
 
     suspend fun checkForUpdate(
         includePreRelease: Boolean,

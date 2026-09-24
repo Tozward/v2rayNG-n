@@ -336,6 +336,8 @@ class MainViewModel(
                     MmkvManager.decodeSettingsLong(AppConfig.PREF_LAST_UPDATE_CHECK, 0),
                     now
                 )) return@launch
+            // Count an attempted check even when offline, so repeated launches stay cheap.
+            MmkvManager.encodeSettings(AppConfig.PREF_LAST_UPDATE_CHECK, now)
             try {
                 val includePreRelease = MmkvManager.decodeSettingsBool(
                     AppConfig.PREF_CHECK_UPDATE_PRE_RELEASE,
@@ -346,7 +348,6 @@ class MainViewModel(
                     activeProxyPort = MessageHelper.knownHttpProxyPort(getApplication()),
                     quick = true
                 )
-                MmkvManager.encodeSettings(AppConfig.PREF_LAST_UPDATE_CHECK, System.currentTimeMillis())
                 if (result.hasUpdate && result.latestVersion != MmkvManager.decodeSettingsString(
                         AppConfig.PREF_DISMISSED_UPDATE_TAG, ""
                     )) {

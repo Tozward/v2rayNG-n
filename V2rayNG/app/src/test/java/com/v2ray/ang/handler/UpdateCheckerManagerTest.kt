@@ -98,11 +98,12 @@ class UpdateCheckerManagerTest {
     }
 
     @Test
-    fun automaticCheckIsDisabledOrRateLimited() {
+    fun automaticCheckIsDisabledOrRateLimitedEvenAfterAFailedAttempt() {
         val now = 1_000_000_000L
+        val failedAttemptAt = now - 1_000
         assertFalse(UpdateCheckerManager.shouldAutoCheck(false, 0, now))
         assertTrue(UpdateCheckerManager.shouldAutoCheck(true, 0, now))
-        assertFalse(UpdateCheckerManager.shouldAutoCheck(true, now - 1_000, now))
+        assertFalse(UpdateCheckerManager.shouldAutoCheck(true, failedAttemptAt, now))
         assertTrue(UpdateCheckerManager.shouldAutoCheck(true, now - 6 * 60 * 60 * 1000L, now))
         assertTrue(UpdateCheckerManager.shouldAutoCheck(true, now + 1_000, now))
     }
