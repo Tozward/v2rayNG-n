@@ -8,11 +8,14 @@ import com.v2ray.ang.R
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.UpdateCheckerManager
+import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,8 +30,20 @@ class CheckUpdateViewModel internal constructor(
 
     constructor(application: Application) : this(
         application,
-        { includePreRelease -> UpdateCheckerManager.checkForUpdate(includePreRelease) },
-        { cacheDir, update, onProgress -> UpdateCheckerManager.downloadApk(cacheDir, update, onProgress) }
+        { includePreRelease ->
+            UpdateCheckerManager.checkForUpdate(
+                includePreRelease,
+                activeProxyPort = MessageHelper.knownHttpProxyPort(application)
+            )
+        },
+        { cacheDir, update, onProgress ->
+            UpdateCheckerManager.downloadApk(
+                cacheDir,
+                update,
+                onProgress,
+                activeProxyPort = MessageHelper.knownHttpProxyPort(application)
+            )
+        }
     )
 
     private val _checkPreRelease = MutableStateFlow(
@@ -103,22 +118,37 @@ class CheckUpdateViewModel internal constructor(
         _showUpdateDialog.value = false
         _pendingApk.value = null
         downloadJob = viewModelScope.launch {
+            val currentJob = currentCoroutineContext()[Job]
             _downloadProgress.value = 0
             _statusMessage.value = null
             try {
-                _pendingApk.value = downloader(getApplication<Application>().cacheDir, result) { progress ->
-                    _downloadProgress.value = progress
+                val apk = downloader(getApplication<Application>().cacheDir, result) { progress ->
+                    if (currentJob?.isActive == true && downloadJob === currentJob) {
+                        _downloadProgress.value = progress
+                    }
                 }
+                currentCoroutineContext().ensureActive()
+                _pendingApk.value = apk
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
                 LogUtil.e(AppConfig.TAG, "Update APK download failed", error)
                 _showUpdateDialog.value = true
                 _statusMessage.value = R.string.update_download_failed
             } finally {
-                _downloadProgress.value = null
+                if (downloadJob === currentJob) _downloadProgress.value = null
             }
         }
+    }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _downloadProgress.value = null
+        _pendingApk.value = null
+        _statusMessage.value = null
+        _showUpdateDialog.value = false
     }
 
     fun consumePendingApk() {

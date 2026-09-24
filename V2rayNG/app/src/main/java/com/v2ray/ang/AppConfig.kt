@@ -184,6 +184,7 @@ object AppConfig {
     const val MSG_STATE_RUNNING = 11
     const val MSG_STATE_NOT_RUNNING = 12
     const val MSG_UNREGISTER_CLIENT = 2
+    const val MSG_QUERY_LOCAL_PROXY_PORT = 9
     const val MSG_STATE_START = 3
     const val MSG_STATE_START_SUCCESS = 31
     const val MSG_STATE_START_FAILURE = 32

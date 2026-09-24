@@ -12,7 +12,10 @@ import org.junit.rules.TemporaryFolder
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -127,34 +130,111 @@ class UpdateCheckerManagerTest {
                 assetSize = bytes.size.toLong(),
                 assetDigest = actualDigest
             )
-            val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {}, false)
+            val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {})
             assertEquals(bytes.toList(), target.readBytes().toList())
             assertEquals("application/octet-stream", acceptHeader.get())
 
             var rejected = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update.copy(assetDigest = digest), {}, false
+                    temporaryFolder.root, update.copy(assetDigest = digest), {}
                 )
             } catch (_: IOException) {
                 rejected = true
             }
             assertTrue(rejected)
-            assertFalse(temporaryFolder.root.resolve("updates/pending.apk").exists())
+            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+                .none { it.name.startsWith("pending-") })
 
             rejected = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update.copy(assetSize = bytes.size.toLong() + 1), {}, false
+                    temporaryFolder.root, update.copy(assetSize = bytes.size.toLong() + 1), {}
                 )
             } catch (_: IOException) {
                 rejected = true
             }
             assertTrue(rejected)
-            assertFalse(temporaryFolder.root.resolve("updates/pending.apk").exists())
+            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+                .none { it.name.startsWith("pending-") })
         } finally {
             server.close()
             responder.join(1_000)
+        }
+    }
+
+    @Test
+    fun activeProxyIsTheOnlyDownloadRouteEvenWhenItFails() = runBlocking {
+        val bytes = "apk via selected node".toByteArray()
+        val digest = "sha256:" + MessageDigest.getInstance("SHA-256")
+            .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val direct = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val proxy = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
+        direct.soTimeout = 1_500
+        proxy.soTimeout = 5_000
+        val directUsed = AtomicBoolean(false)
+        val proxyRequests = AtomicInteger(0)
+        val directResponder = thread(start = true) {
+            try {
+                direct.accept().use { socket ->
+                    directUsed.set(true)
+                    socket.getOutputStream().write(
+                        "HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray() + bytes
+                    )
+                }
+            } catch (_: SocketTimeoutException) {
+                // No direct request is the expected result.
+            }
+        }
+        val proxyResponder = thread(start = true) {
+            repeat(2) {
+                proxy.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    while (reader.readLine()?.isNotEmpty() == true) Unit
+                    val count = proxyRequests.incrementAndGet()
+                    socket.getOutputStream().apply {
+                        if (count == 1) {
+                            write("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                            write(bytes)
+                        } else {
+                            write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                        }
+                        flush()
+                    }
+                }
+            }
+        }
+        val update = CheckUpdateResult(
+            hasUpdate = true,
+            downloadUrl = "http://127.0.0.1:${direct.localPort}/asset",
+            assetSize = bytes.size.toLong(),
+            assetDigest = digest
+        )
+        try {
+            val ready = UpdateCheckerManager.downloadApk(
+                temporaryFolder.root, update, {}, activeProxyPort = proxy.localPort
+            )
+            assertEquals(bytes.toList(), ready.readBytes().toList())
+            var failed = false
+            try {
+                UpdateCheckerManager.downloadApk(
+                    temporaryFolder.root, update, {}, activeProxyPort = proxy.localPort
+                )
+            } catch (_: IOException) {
+                failed = true
+            }
+            assertTrue(failed)
+            assertEquals(2, proxyRequests.get())
+            directResponder.join(2_000)
+            assertFalse(directUsed.get())
+            assertEquals(bytes.toList(), ready.readBytes().toList())
+            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+                .none { it.name.startsWith("pending-") })
+        } finally {
+            direct.close()
+            proxy.close()
+            directResponder.join(1_000)
+            proxyResponder.join(1_000)
         }
     }
 

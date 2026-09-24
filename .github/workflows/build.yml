@@ -104,7 +104,7 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
         ./gradlew assembleRelease \
@@ -178,7 +178,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          NOTES="Adds in-app updates from this fork: checks on launch in the background, downloads the matching APK from the GitHub Release API, verifies its size and SHA-256 digest, and opens the Android installer. Automatic checks can be disabled in Settings. Keeps the earlier testpre, VPN, and per-app improvements. APKs are signed with this fork's Android keystore."
+          NOTES="Refines in-app updates: a compact download progress card without the extra end marker, and a cancel action. When the current daemon is running, app updates and geo files download only through its local proxy; when stopped, they download directly. The app never starts a VPN or changes nodes for downloads. Keeps the earlier testpre, VPN, and per-app improvements. APKs are signed with this fork's Android keystore."
           if test -f release-files/v2rayN-public-key.asc; then
             NOTES="$NOTES Detached GPG signatures are included."
           else

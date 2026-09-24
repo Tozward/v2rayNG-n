@@ -8,10 +8,11 @@ import com.v2ray.ang.dto.GitHubRelease
 import com.v2ray.ang.dto.UrlContentRequest
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
-import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -33,24 +34,27 @@ object UpdateCheckerManager {
 
     suspend fun checkForUpdate(
         includePreRelease: Boolean,
-        allowProxyFallback: Boolean = true
+        activeProxyPort: Int? = null,
+        quick: Boolean = false
     ): CheckUpdateResult {
         val response = withContext(Dispatchers.IO) {
             val url = "${AppConfig.APP_API_URL}?per_page=20"
-            val timeout = if (allowProxyFallback) 5000 else 3500
-            val direct = HttpUtil.getUrlContent(UrlContentRequest(url = url, timeout = timeout))
-            val result = direct ?: if (allowProxyFallback) {
-                    HttpUtil.getUrlContent(
-                        UrlContentRequest(
-                            url = url,
-                            timeout = 5000,
-                            httpPort = SettingsManager.getHttpPort(),
-                            proxyUsername = SettingsManager.getSocksUsername(),
-                            proxyPassword = SettingsManager.getSocksPassword()
-                        )
-                    )
-                } else null
-            result ?: throw IOException("Could not load release list")
+            val timeout = if (quick) 3500 else 5000
+            if (activeProxyPort != null && activeProxyPort !in 1..65535) {
+                throw IOException("Invalid running proxy port")
+            }
+            val proxyRequest = activeProxyPort?.let { port ->
+                UrlContentRequest(
+                    url = url,
+                    timeout = timeout,
+                    httpPort = port,
+                    proxyUsername = SettingsManager.getSocksUsername(),
+                    proxyPassword = SettingsManager.getSocksPassword()
+                )
+            }
+            val request = proxyRequest ?: UrlContentRequest(url = url, timeout = timeout)
+            HttpUtil.getUrlContent(request)
+                ?: throw IOException("Could not load release list")
         }
         return withContext(Dispatchers.Default) {
             val releases = JsonUtil.fromJsonSafe(response, Array<GitHubRelease>::class.java)
@@ -148,84 +152,84 @@ object UpdateCheckerManager {
         cacheDir: File,
         update: CheckUpdateResult,
         onProgress: (Int) -> Unit,
-        allowProxyFallback: Boolean = true
+        activeProxyPort: Int? = null
     ): File = withContext(Dispatchers.IO) {
         val url = update.downloadUrl ?: throw IOException("Missing release asset")
         val expectedDigest = update.assetDigest?.takeIf { it.matches(digestPattern) }
             ?: throw IOException("Missing release digest")
         val expectedSize = update.assetSize.takeIf { it > 0 }
             ?: throw IOException("Missing release size")
+        if (activeProxyPort != null && activeProxyPort !in 1..65535) {
+            throw IOException("Invalid running proxy port")
+        }
         val updateDir = File(cacheDir, "updates")
         if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Could not create update cache")
-        val pending = File(updateDir, "pending.apk")
+        val pending = File.createTempFile("pending-", ".apk", updateDir)
         val ready = File(updateDir, "update.apk")
-        val clients = mutableListOf(downloadClient())
-        if (allowProxyFallback) {
-            val port = SettingsManager.getHttpPort()
-            if (port > 0) clients += downloadClient(
-                port,
-                SettingsManager.getSocksUsername(),
-                SettingsManager.getSocksPassword()
-            )
+        val proxyClient = activeProxyPort?.let { port ->
+            downloadClient(port)
         }
+        val client = proxyClient ?: downloadClient()
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/octet-stream")
             .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
             .build()
-        var lastFailure: IOException? = null
         try {
-            for ((index, client) in clients.withIndex()) {
-                currentCoroutineContext().ensureActive()
-                onProgress(0)
+            currentCoroutineContext().ensureActive()
+            onProgress(0)
+            val hash = MessageDigest.getInstance("SHA-256")
+            var received = 0L
+            var lastProgress = -1
+            val call = client.newCall(request)
+            val cancellationWatcher = launch(Dispatchers.Default) {
                 try {
-                    val hash = MessageDigest.getInstance("SHA-256")
-                    var received = 0L
-                    var lastProgress = -1
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
-                        response.body.byteStream().use { input ->
-                            pending.outputStream().use { output ->
-                                val buffer = ByteArray(32 * 1024)
-                                while (true) {
-                                    currentCoroutineContext().ensureActive()
-                                    val count = input.read(buffer)
-                                    if (count < 0) break
-                                    output.write(buffer, 0, count)
-                                    hash.update(buffer, 0, count)
-                                    received += count
-                                    if (received > expectedSize) throw IOException("Release size exceeded")
-                                    val progress = (received * 100 / expectedSize).toInt()
-                                    if (progress != lastProgress) {
-                                        lastProgress = progress
-                                        onProgress(progress)
-                                    }
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
+                }
+            }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
+                    response.body.byteStream().use { input ->
+                        pending.outputStream().use { output ->
+                            val buffer = ByteArray(32 * 1024)
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                hash.update(buffer, 0, count)
+                                received += count
+                                if (received > expectedSize) throw IOException("Release size exceeded")
+                                val progress = (received * 100 / expectedSize).toInt()
+                                if (progress != lastProgress) {
+                                    lastProgress = progress
+                                    onProgress(progress)
                                 }
                             }
                         }
                     }
-                    if (received != expectedSize) throw IOException("Release size mismatch")
-                    val actualDigest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-                    if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
-                        throw IOException("Release digest mismatch")
-                    }
-                    if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
-                    if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
-                    return@withContext ready
-                } catch (error: IOException) {
-                    lastFailure = error
-                    if (index < clients.lastIndex) {
-                        LogUtil.e(AppConfig.TAG, "Direct update download failed; retrying through local proxy", error)
-                    }
                 }
+            } finally {
+                cancellationWatcher.cancel()
             }
-            throw lastFailure ?: IOException("Release download failed")
+            currentCoroutineContext().ensureActive()
+            if (received != expectedSize) throw IOException("Release size mismatch")
+            val actualDigest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
+                throw IOException("Release digest mismatch")
+            }
+            if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
+            if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
+            ready
         } finally {
             pending.delete()
         }
     }
 
-    private fun downloadClient(port: Int = 0, username: String? = null, password: String? = null): OkHttpClient {
+    private fun downloadClient(port: Int = 0): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -233,13 +237,15 @@ object UpdateCheckerManager {
             .followRedirects(true)
         if (port > 0) {
             builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(AppConfig.LOOPBACK, port)))
-            if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
-                builder.proxyAuthenticator { _, response ->
-                    if (response.request.header("Proxy-Authorization") != null) null
-                    else response.request.newBuilder()
-                        .header("Proxy-Authorization", Credentials.basic(username, password))
-                        .build()
-                }
+            builder.proxyAuthenticator { _, response ->
+                val username = SettingsManager.getSocksUsername()
+                val password = SettingsManager.getSocksPassword()
+                if (response.request.header("Proxy-Authorization") != null ||
+                    username.isNullOrBlank() || password.isNullOrBlank()
+                ) null
+                else response.request.newBuilder()
+                    .header("Proxy-Authorization", Credentials.basic(username, password))
+                    .build()
             }
         }
         return builder.build()

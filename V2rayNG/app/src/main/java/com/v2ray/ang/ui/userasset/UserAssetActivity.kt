@@ -54,6 +54,7 @@ import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.extension.toastSuccess
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
+import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.compose.AppDropdownMenuItems
 import com.v2ray.ang.ui.compose.AppTopBar
@@ -64,6 +65,7 @@ import com.v2ray.ang.ui.compose.SettingsListItem
 import com.v2ray.ang.ui.compose.verticalScrollbar
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -210,30 +212,44 @@ class UserAssetActivity : HelperBaseComponentActivity() {
     }
 
     private fun downloadGeoFiles() {
+        if (isLoadingState.value) return
         isLoadingState.value = true
         toast(R.string.msg_downloading_content)
 
-        val proxyUsername = SettingsManager.getSocksUsername()
-        val proxyPassword = SettingsManager.getSocksPassword()
-        val httpPort = SettingsManager.getHttpPort()
         lifecycleScope.launch {
-            refreshData().join()
-            val result = withContext(Dispatchers.IO) {
-                viewModel.downloadGeoFiles(extDir, httpPort, proxyUsername, proxyPassword)
-            }
-            if (result.successCount > 0) {
-                toast(
-                    resources.getQuantityString(
-                        R.plurals.title_update_asset_count,
-                        result.successCount,
-                        result.successCount,
+            try {
+                refreshData().join()
+                val result = withContext(Dispatchers.IO) {
+                    val httpPort = MessageHelper.knownHttpProxyPort(this@UserAssetActivity) ?: 0
+                    viewModel.downloadGeoFiles(
+                        extDir,
+                        httpPort,
+                        SettingsManager.getSocksUsername(),
+                        SettingsManager.getSocksPassword()
                     )
-                )
-            } else {
+                }
+                if (result.failureCount > 0) {
+                    toast(getString(R.string.toast_failure))
+                } else if (result.successCount > 0) {
+                    toast(
+                        resources.getQuantityString(
+                            R.plurals.title_update_asset_count,
+                            result.successCount,
+                            result.successCount,
+                        )
+                    )
+                } else {
+                    toast(getString(R.string.toast_failure))
+                }
+                refreshData().join()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "Failed to download geo files", e)
                 toast(getString(R.string.toast_failure))
+            } finally {
+                isLoadingState.value = false
             }
-            refreshData().join()
-            isLoadingState.value = false
         }
     }
 

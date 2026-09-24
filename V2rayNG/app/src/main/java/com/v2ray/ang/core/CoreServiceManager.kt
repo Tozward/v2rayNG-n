@@ -496,6 +496,17 @@ object CoreServiceManager {
                     // nothing to do
                 }
 
+                AppConfig.MSG_QUERY_LOCAL_PROXY_PORT -> {
+                    if (isOrderedBroadcast) {
+                        if (isRunning()) {
+                            resultData = SettingsManager.getHttpPort().toString()
+                            resultCode = Activity.RESULT_OK
+                        } else {
+                            resultCode = Activity.RESULT_FIRST_USER
+                        }
+                    }
+                }
+
                 AppConfig.MSG_STATE_START -> {
                     // nothing to do
                 }

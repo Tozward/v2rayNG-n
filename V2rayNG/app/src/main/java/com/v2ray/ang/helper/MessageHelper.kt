@@ -13,10 +13,20 @@ import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.service.CoreTestService
 import com.v2ray.ang.service.SubscriptionUpdateService
 import com.v2ray.ang.util.LogUtil
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 import java.io.Serializable
+import kotlin.coroutines.resume
 
 object MessageHelper {
     const val EXTRA_REQUEST_ID = "requestId"
+
+    sealed interface LocalProxyStatus {
+        data class Running(val port: Int) : LocalProxyStatus
+        data object Stopped : LocalProxyStatus
+        data object Unknown : LocalProxyStatus
+    }
 
     /**
      * Sends a message to the service.
@@ -59,6 +69,48 @@ object MessageHelper {
             onResult(false)
         }
     }
+
+    /** Asks the daemon for its current port; dynamic ports are process-local to the daemon. */
+    suspend fun queryRunningHttpProxy(ctx: Context): LocalProxyStatus = withTimeoutOrNull(1000L) {
+        suspendCancellableCoroutine { continuation ->
+            val resultReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (continuation.isActive) {
+                        continuation.resume(parseRunningHttpProxyStatus(resultCode, resultData))
+                    }
+                }
+            }
+            try {
+                ctx.sendOrderedBroadcast(
+                    messageIntent(AppConfig.BROADCAST_ACTION_SERVICE, AppConfig.MSG_QUERY_LOCAL_PROXY_PORT, ""),
+                    null,
+                    resultReceiver,
+                    null,
+                    Activity.RESULT_CANCELED,
+                    null,
+                    null,
+                )
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "Failed to query daemon HTTP proxy port", e)
+                if (continuation.isActive) continuation.resume(LocalProxyStatus.Unknown)
+            }
+        }
+    } ?: LocalProxyStatus.Unknown
+
+    /** Null means the daemon is stopped; an uncertain result must never select direct access. */
+    suspend fun knownHttpProxyPort(ctx: Context): Int? = when (val status = queryRunningHttpProxy(ctx)) {
+        is LocalProxyStatus.Running -> status.port
+        LocalProxyStatus.Stopped -> null
+        LocalProxyStatus.Unknown -> throw IOException("Could not determine proxy service state")
+    }
+
+    internal fun parseRunningHttpProxyStatus(resultCode: Int, resultData: String?): LocalProxyStatus =
+        when (resultCode) {
+            Activity.RESULT_OK -> resultData?.toIntOrNull()?.takeIf { it in 1..65535 }
+                ?.let(LocalProxyStatus::Running) ?: LocalProxyStatus.Unknown
+            Activity.RESULT_CANCELED, Activity.RESULT_FIRST_USER -> LocalProxyStatus.Stopped
+            else -> LocalProxyStatus.Unknown
+        }
 
     /**
      * Sends a message to the UI.

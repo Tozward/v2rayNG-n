@@ -22,6 +22,7 @@ import com.v2ray.ang.extension.matchesPattern
 import com.v2ray.ang.extension.moveItem
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.UpdateCheckerManager
+import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CancellationException
@@ -340,7 +341,11 @@ class MainViewModel(
                     AppConfig.PREF_CHECK_UPDATE_PRE_RELEASE,
                     BuildConfig.VERSION_NAME.contains('-')
                 )
-                val result = UpdateCheckerManager.checkForUpdate(includePreRelease, allowProxyFallback = false)
+                val result = UpdateCheckerManager.checkForUpdate(
+                    includePreRelease,
+                    activeProxyPort = MessageHelper.knownHttpProxyPort(getApplication()),
+                    quick = true
+                )
                 MmkvManager.encodeSettings(AppConfig.PREF_LAST_UPDATE_CHECK, System.currentTimeMillis())
                 if (result.hasUpdate && result.latestVersion != MmkvManager.decodeSettingsString(
                         AppConfig.PREF_DISMISSED_UPDATE_TAG, ""

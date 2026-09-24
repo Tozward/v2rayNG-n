@@ -5,6 +5,7 @@ import android.util.Log
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.R
 import com.v2ray.ang.dto.CheckUpdateResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -13,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -95,6 +97,30 @@ class CheckUpdateViewModelTest {
                 })
                 assertFalse(failing.showUpdateDialog.value)
             }
+        }
+    }
+
+    @Test fun cancellingDownloadClearsProgressAndNeverOffersAnInstallerFile() = runBlocking(mainDispatcher) {
+        withSettingsStorage {
+            val app = mock<Application>()
+            whenever(app.cacheDir).thenReturn(File(System.getProperty("java.io.tmpdir"), "test-update-cache"))
+            val release = CheckUpdateResult(hasUpdate = true, latestVersion = "2.3.9-testpre.6")
+            val gate = CompletableDeferred<Unit>()
+            val model = CheckUpdateViewModel(app, { release }, { _, _, onProgress ->
+                onProgress(12)
+                gate.await()
+                File("unused.apk")
+            })
+
+            model.offerUpdate(release)
+            assertEquals(12, withTimeout(5_000) { model.downloadProgress.first { it == 12 } })
+            model.cancelDownload()
+            gate.complete(Unit)
+            yield()
+
+            assertNull(model.downloadProgress.value)
+            assertNull(model.pendingApk.value)
+            assertFalse(model.showUpdateDialog.value)
         }
     }
 

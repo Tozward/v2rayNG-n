@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.IOException
 
 internal data class AssetFileMetadata(val length: Long, val lastModified: Long)
 
@@ -86,15 +87,29 @@ class UserAssetViewModel(application: Application) : BaseViewModel(application) 
         httpPort: Int,
         proxyUsername: String? = null,
         proxyPassword: String? = null
+    ): GeoDownloadResult = downloadGeoFiles(
+        uiState.value.assets,
+        extDir,
+        httpPort,
+        proxyUsername,
+        proxyPassword,
+        HttpUtil::downloadToFile
+    )
+
+    internal fun downloadGeoFiles(
+        snapshot: List<AssetUrlCache>,
+        extDir: File,
+        httpPort: Int,
+        proxyUsername: String?,
+        proxyPassword: String?,
+        downloadToFile: (UrlContentRequest, File) -> Boolean
     ): GeoDownloadResult {
-        val snapshot = uiState.value.assets
         var successCount = 0
         val failures = mutableListOf<String>()
 
         snapshot.forEach { cache ->
             val item = cache.assetUrl
-            val portsToTry = if (httpPort == 0) listOf(0) else listOf(httpPort, 0)
-            if (portsToTry.any { tryDownload(item, extDir, it, proxyUsername, proxyPassword) }) {
+            if (tryDownload(item, extDir, httpPort, proxyUsername, proxyPassword, downloadToFile)) {
                 successCount++
             } else {
                 failures.add(item.remarks)
@@ -109,13 +124,14 @@ class UserAssetViewModel(application: Application) : BaseViewModel(application) 
         extDir: File,
         httpPort: Int,
         proxyUsername: String? = null,
-        proxyPassword: String? = null
+        proxyPassword: String? = null,
+        downloadToFile: (UrlContentRequest, File) -> Boolean
     ): Boolean {
         val targetTemp = File(extDir, item.remarks + "_temp")
         val target = File(extDir, item.remarks)
         try {
             if (
-                HttpUtil.downloadToFile(
+                downloadToFile(
                     UrlContentRequest(
                         url = item.url,
                         timeout = 15000,
@@ -126,11 +142,15 @@ class UserAssetViewModel(application: Application) : BaseViewModel(application) 
                     targetTemp
                 )
             ) {
-                targetTemp.renameTo(target)
-                return true
+                if (targetTemp.renameTo(target)) return true
+                throw IOException("Could not replace downloaded geo file: ${item.remarks}")
             }
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to download geo file: ${item.remarks}", e)
+        } finally {
+            if (targetTemp.exists() && !targetTemp.delete()) {
+                LogUtil.w(AppConfig.TAG, "Could not remove incomplete geo file: ${item.remarks}")
+            }
         }
         return false
     }
