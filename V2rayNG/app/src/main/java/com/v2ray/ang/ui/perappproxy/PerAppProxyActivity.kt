@@ -26,7 +26,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +72,7 @@ class PerAppProxyActivity : BaseComponentActivity() {
     @Composable
     override fun ScreenContent() {
         val apps by viewModel.displayedApps.collectAsStateWithLifecycle()
+        val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
         val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
         val blacklist by viewModel.blacklist.collectAsStateWithLifecycle()
         val perAppProxyEnabled by viewModel.perAppProxyEnabled.collectAsStateWithLifecycle()
@@ -84,6 +84,7 @@ class PerAppProxyActivity : BaseComponentActivity() {
             blacklist = blacklist,
             perAppProxyEnabled = perAppProxyEnabled,
             bypassApps = bypassApps,
+            searchQuery = searchQuery,
             onBackClick = { finish() },
             onPerAppProxyChanged = { viewModel.setPerAppProxyEnabled(it) },
             onBypassAppsChanged = { viewModel.setBypassAppsEnabled(it) },
@@ -112,6 +113,7 @@ fun PerAppProxyScreen(
     blacklist: Set<String>,
     perAppProxyEnabled: Boolean,
     bypassApps: Boolean,
+    searchQuery: String,
     onBackClick: () -> Unit,
     onPerAppProxyChanged: (Boolean) -> Unit,
     onBypassAppsChanged: (Boolean) -> Unit,
@@ -124,15 +126,10 @@ fun PerAppProxyScreen(
     onExportProxyApp: () -> Unit
 ) {
     var showSearch by rememberSaveable { mutableStateOf(false) }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
     var showInfoDialog by rememberSaveable { mutableStateOf(false) }
     val onInfoClick = { showInfoDialog = true }
     val listState = rememberLazyListState()
-
-    LaunchedEffect(Unit) {
-        onSearch(searchQuery)
-    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -143,12 +140,8 @@ fun PerAppProxyScreen(
                 isLoading = isLoading,
                 isSearchActive = showSearch,
                 searchQuery = searchQuery,
-                onSearchQueryChange = { query ->
-                    searchQuery = query
-                    onSearch(query)
-                },
+                onSearchQueryChange = onSearch,
                 onSearchClose = {
-                    searchQuery = ""
                     onSearch("")
                     showSearch = false
                 },

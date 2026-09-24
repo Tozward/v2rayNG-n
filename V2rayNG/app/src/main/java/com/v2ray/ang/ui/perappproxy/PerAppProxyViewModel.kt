@@ -2,6 +2,8 @@ package com.v2ray.ang.ui.perappproxy
 
 import android.app.Application
 import android.content.Context
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.AppInfo
 import com.v2ray.ang.dto.UrlContentRequest
@@ -17,8 +19,12 @@ import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import java.text.Collator
 
@@ -26,15 +32,25 @@ import java.text.Collator
  * ViewModel for PerAppProxy screen.
  * Holds all UI state and business logic.
  */
-class PerAppProxyViewModel(application: Application) : BaseViewModel(application) {
+class PerAppProxyViewModel internal constructor(
+    application: Application,
+    private val savedStateHandle: SavedStateHandle,
+    private val loadAppList: suspend (Context) -> List<AppInfo>
+) : BaseViewModel(application) {
+
+    constructor(application: Application, savedStateHandle: SavedStateHandle) :
+            this(application, savedStateHandle, AppManagerUtil::loadNetworkAppList)
 
     // Blacklist (apps to be proxied or bypassed)
     private val _blacklist = MutableStateFlow(loadBlacklist())
     val blacklist: StateFlow<Set<String>> = _blacklist.asStateFlow()
 
     // UI states
-    private val _displayedApps = MutableStateFlow<List<AppInfo>>(emptyList())
-    val displayedApps: StateFlow<List<AppInfo>> = _displayedApps.asStateFlow()
+    private val _allApps = MutableStateFlow<List<AppInfo>?>(null)
+    val searchQuery: StateFlow<String> = savedStateHandle.getStateFlow(SEARCH_QUERY, "")
+    val displayedApps: StateFlow<List<AppInfo>> = combine(_allApps, searchQuery) { apps, query ->
+        applyFilter(apps.orEmpty(), query)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _perAppProxyEnabled = MutableStateFlow(
         MmkvManager.decodeSettingsBool(AppConfig.PREF_PER_APP_PROXY, false)
@@ -46,9 +62,6 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
     )
     val bypassApps: StateFlow<Boolean> = _bypassApps.asStateFlow()
 
-    // Cached full list for filtering
-    private var appsAll: List<AppInfo>? = null
-    private var currentQuery = ""
     private var isAppListLoading = false
 
     // Blacklist operations
@@ -91,18 +104,19 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
 
     // Load and filter apps
     fun loadApps(context: Context) {
-        if (appsAll != null || isAppListLoading) return
+        if (_allApps.value != null || isAppListLoading) return
 
         val applicationContext = context.applicationContext
         isAppListLoading = true
         launchLoading {
             try {
-                val apps = withContext(Dispatchers.IO) {
-                    val list = AppManagerUtil.loadNetworkAppList(applicationContext)
-                    sortApps(list)
+                val list = withContext(Dispatchers.IO) {
+                    loadAppList(applicationContext)
                 }
-                appsAll = apps
-                _displayedApps.value = applyFilter(currentQuery)
+                val selectedPackages = _blacklist.value
+                _allApps.value = withContext(Dispatchers.Default) {
+                    sortApps(list, selectedPackages)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -114,12 +128,10 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
     }
 
     fun filterApps(query: String) {
-        currentQuery = query
-        _displayedApps.value = applyFilter(query)
+        savedStateHandle[SEARCH_QUERY] = query
     }
 
-    private fun applyFilter(query: String): List<AppInfo> {
-        val apps = appsAll ?: return emptyList()
+    private fun applyFilter(apps: List<AppInfo>, query: String): List<AppInfo> {
         if (query.isEmpty()) return apps
 
         return apps.filter {
@@ -128,9 +140,8 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
         }
     }
 
-    private fun sortApps(apps: List<AppInfo>): List<AppInfo> {
+    private fun sortApps(apps: List<AppInfo>, selectedPackages: Set<String>): List<AppInfo> {
         val collator = Collator.getInstance()
-        val selectedPackages = _blacklist.value
         return apps.sortedWith { p1, p2 ->
             val s1 = p1.packageName in selectedPackages
             val s2 = p2.packageName in selectedPackages
@@ -146,11 +157,11 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
 
     // Bulk actions
     fun selectAll() {
-        val displayedApps = _displayedApps.value
+        val visibleApps = displayedApps.value
         val currentSelection = _blacklist.value
-        val allSelected = displayedApps.all { it.packageName in currentSelection }
+        val allSelected = visibleApps.all { it.packageName in currentSelection }
         val newSelection = currentSelection.toMutableSet().apply {
-            displayedApps.forEach { app ->
+            visibleApps.forEach { app ->
                 if (allSelected) remove(app.packageName) else add(app.packageName)
             }
         }
@@ -159,7 +170,7 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
     }
 
     fun invertSelection() {
-        val packageNames = _displayedApps.value.map { it.packageName }
+        val packageNames = displayedApps.value.map { it.packageName }
         replaceBlacklist(AppSelection.invert(_blacklist.value, packageNames))
         enablePerAppProxyAndRestart()
     }
@@ -230,7 +241,7 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
     }
 
     private suspend fun applyProxyAppList(content: String, context: Context, forceGoogleApps: Boolean): Boolean {
-        val installedApps = appsAll ?: return false
+        val installedApps = _allApps.value ?: return false
 
         try {
             val proxyAppList = if (content.isEmpty()) {
@@ -262,5 +273,9 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
     private fun enablePerAppProxyAndRestart() {
         setPerAppProxyEnabled(true)
         SettingsChangeManager.makeRestartService()
+    }
+
+    private companion object {
+        const val SEARCH_QUERY = "per_app_search_query"
     }
 }
