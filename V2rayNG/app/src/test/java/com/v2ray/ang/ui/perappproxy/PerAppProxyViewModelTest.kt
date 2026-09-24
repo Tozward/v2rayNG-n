@@ -106,6 +106,24 @@ class PerAppProxyViewModelTest {
     }
 
     @Test
+    fun bulkActionsUseTheCurrentQueryBeforeAsyncFilteringPublishes() = runBlocking(mainDispatcher) {
+        withSettingsStorage {
+            val model = PerAppProxyViewModel(mock<Application>(), SavedStateHandle()) { sampleApps() }
+            model.loadApps(appContext())
+            withTimeout(5_000) { model.displayedApps.first { it.size == 2 } }
+
+            model.filterApps("target")
+            model.selectAll()
+            assertEquals(setOf("com.example.target"), model.blacklist.value)
+
+            model.filterApps("other")
+            model.invertSelection()
+            assertEquals(setOf("com.example.target", "com.example.other"), model.blacklist.value)
+            SettingsChangeManager.consumeRestartService()
+        }
+    }
+
+    @Test
     fun failedLoadKeepsTheListEmptyAndAllowsRetry() = runBlocking(mainDispatcher) {
         withSettingsStorage {
             mockStatic(Log::class.java).use {

@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 
 object UpdateCheckerManager {
     private const val AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
-    private val versionPattern = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$")
+    private val versionPattern = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)((?:\\.\\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$")
     private val digestPattern = Regex("^sha256:[0-9a-fA-F]{64}$")
 
     fun shouldAutoCheck(enabled: Boolean, lastCheckedAt: Long, now: Long): Boolean =
@@ -118,8 +118,8 @@ object UpdateCheckerManager {
 
     private data class Version(val numbers: List<Int>, val preRelease: List<String>?) : Comparable<Version> {
         override fun compareTo(other: Version): Int {
-            for (index in numbers.indices) {
-                val comparison = numbers[index].compareTo(other.numbers[index])
+            for (index in 0 until maxOf(numbers.size, other.numbers.size)) {
+                val comparison = numbers.getOrElse(index) { 0 }.compareTo(other.numbers.getOrElse(index) { 0 })
                 if (comparison != 0) return comparison
             }
             if (preRelease == null) return if (other.preRelease == null) 0 else 1
@@ -143,8 +143,9 @@ object UpdateCheckerManager {
 
     private fun parseVersion(raw: String): Version? {
         val match = versionPattern.matchEntire(raw) ?: return null
-        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: return null }
-        val suffix = match.groupValues[4].takeIf { it.isNotEmpty() }
+        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: return null } +
+            match.groupValues[4].split('.').filter { it.isNotEmpty() }.map { it.toIntOrNull() ?: return null }
+        val suffix = match.groupValues[5].takeIf { it.isNotEmpty() }
         return Version(numbers, suffix?.split('.'))
     }
 
@@ -166,16 +167,13 @@ object UpdateCheckerManager {
         if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Could not create update cache")
         val pending = File.createTempFile("pending-", ".apk", updateDir)
         val ready = File(updateDir, "update.apk")
-        val proxyClient = activeProxyPort?.let { port ->
-            downloadClient(port)
-        }
-        val client = proxyClient ?: downloadClient()
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/octet-stream")
-            .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
-            .build()
         try {
+            val client = downloadClient(activeProxyPort ?: 0)
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/octet-stream")
+                .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
+                .build()
             currentCoroutineContext().ensureActive()
             onProgress(0)
             val hash = MessageDigest.getInstance("SHA-256")
@@ -233,7 +231,7 @@ object UpdateCheckerManager {
         val builder = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(5, TimeUnit.MINUTES)
+            .callTimeout(30, TimeUnit.MINUTES)
             .followRedirects(true)
         if (port > 0) {
             builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(AppConfig.LOOPBACK, port)))

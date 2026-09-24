@@ -9,11 +9,15 @@ import com.v2ray.ang.R
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.root.RootManager
 import com.v2ray.ang.ui.base.BaseViewModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SettingsViewModel internal constructor(
     application: Application,
@@ -29,11 +33,15 @@ class SettingsViewModel internal constructor(
 
     private val _autoCheckUpdate = MutableStateFlow(readAutoCheckUpdate())
     val autoCheckUpdate = _autoCheckUpdate.asStateFlow()
+    private val autoCheckSaveLock = Mutex()
 
     fun setAutoCheckUpdate(enabled: Boolean) {
         _autoCheckUpdate.value = enabled
-        viewModelScope.launch(Dispatchers.IO) {
-            saveAutoCheckUpdate(enabled)
+        // A quick Back press must not cancel the setting write.
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                autoCheckSaveLock.withLock { saveAutoCheckUpdate(_autoCheckUpdate.value) }
+            }
         }
     }
 

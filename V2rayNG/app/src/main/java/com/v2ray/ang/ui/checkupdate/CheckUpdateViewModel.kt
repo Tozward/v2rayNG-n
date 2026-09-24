@@ -12,20 +12,28 @@ import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class CheckUpdateViewModel internal constructor(
     application: Application,
     private val checker: suspend (Boolean) -> CheckUpdateResult,
-    private val downloader: suspend (File, CheckUpdateResult, (Int) -> Unit) -> File
+    private val downloader: suspend (File, CheckUpdateResult, (Int) -> Unit) -> File,
+    private val saveCheckPreRelease: (Boolean) -> Unit = { enabled ->
+        MmkvManager.encodeSettings(AppConfig.PREF_CHECK_UPDATE_PRE_RELEASE, enabled)
+    }
 ) : BaseViewModel(application) {
 
     constructor(application: Application) : this(
@@ -71,11 +79,17 @@ class CheckUpdateViewModel internal constructor(
 
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
+    private val preReleaseSaveLock = Mutex()
 
     fun toggleCheckPreRelease(enabled: Boolean) {
         _checkPreRelease.value = enabled
-        viewModelScope.launch(Dispatchers.IO) {
-            MmkvManager.encodeSettings(AppConfig.PREF_CHECK_UPDATE_PRE_RELEASE, enabled)
+        // A quick Back press must not cancel the setting write.
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                preReleaseSaveLock.withLock {
+                    saveCheckPreRelease(_checkPreRelease.value)
+                }
+            }
         }
     }
 

@@ -42,6 +42,17 @@ class UpdateCheckerManagerTest {
     }
 
     @Test
+    fun fourPartVersionsRemainComparableWithEarlierReleaseNames() {
+        val releases = listOf(release("v2.3.9.1", prerelease = false))
+        assertEquals("2.3.9.1", UpdateCheckerManager.selectUpdate(
+            releases, "2.3.9", false, listOf("arm64-v8a"), false
+        ).latestVersion)
+        assertFalse(UpdateCheckerManager.selectUpdate(
+            releases, "2.3.9.2", false, listOf("arm64-v8a"), false
+        ).hasUpdate)
+    }
+
+    @Test
     fun stableAndPrereleaseChannelSelectionIsCorrect() {
         val releases = listOf(
             release("v2.4.0-testpre.1"),
@@ -236,6 +247,24 @@ class UpdateCheckerManagerTest {
             directResponder.join(1_000)
             proxyResponder.join(1_000)
         }
+    }
+
+    @Test
+    fun invalidAssetUrlDoesNotLeaveATemporaryFile() = runBlocking {
+        val update = CheckUpdateResult(
+            hasUpdate = true,
+            downloadUrl = "not a url",
+            assetSize = 1,
+            assetDigest = digest
+        )
+        var rejected = false
+        try {
+            UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {})
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty().isEmpty())
     }
 
     private fun release(

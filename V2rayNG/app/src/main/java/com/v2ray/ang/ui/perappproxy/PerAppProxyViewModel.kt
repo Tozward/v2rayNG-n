@@ -140,6 +140,9 @@ class PerAppProxyViewModel internal constructor(
         }
     }
 
+    // The published list is filtered asynchronously; actions must use the latest input.
+    private fun currentVisibleApps(): List<AppInfo> = applyFilter(_allApps.value.orEmpty(), searchQuery.value)
+
     private fun sortApps(apps: List<AppInfo>, selectedPackages: Set<String>): List<AppInfo> {
         val collator = Collator.getInstance()
         return apps.sortedWith { p1, p2 ->
@@ -157,7 +160,7 @@ class PerAppProxyViewModel internal constructor(
 
     // Bulk actions
     fun selectAll() {
-        val visibleApps = displayedApps.value
+        val visibleApps = currentVisibleApps()
         val currentSelection = _blacklist.value
         val allSelected = visibleApps.all { it.packageName in currentSelection }
         val newSelection = currentSelection.toMutableSet().apply {
@@ -170,7 +173,7 @@ class PerAppProxyViewModel internal constructor(
     }
 
     fun invertSelection() {
-        val packageNames = displayedApps.value.map { it.packageName }
+        val packageNames = currentVisibleApps().map { it.packageName }
         replaceBlacklist(AppSelection.invert(_blacklist.value, packageNames))
         enablePerAppProxyAndRestart()
     }

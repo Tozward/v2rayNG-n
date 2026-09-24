@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -187,7 +188,7 @@ fun CheckUpdateScreen(
     val pendingApk by viewModel.pendingApk.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
-    val libVersion = CoreNativeManager.getLibVersion()
+    val libVersion = remember { CoreNativeManager.getLibVersion() }
     val versionText = "v${BuildConfig.VERSION_NAME} ($libVersion)"
 
     Scaffold(

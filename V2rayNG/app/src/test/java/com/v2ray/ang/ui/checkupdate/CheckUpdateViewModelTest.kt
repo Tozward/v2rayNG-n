@@ -2,6 +2,7 @@ package com.v2ray.ang.ui.checkupdate
 
 import android.app.Application
 import android.util.Log
+import androidx.lifecycle.ViewModelStore
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.R
 import com.v2ray.ang.dto.CheckUpdateResult
@@ -27,7 +28,10 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CheckUpdateViewModelTest {
@@ -121,6 +125,44 @@ class CheckUpdateViewModelTest {
             assertNull(model.downloadProgress.value)
             assertNull(model.pendingApk.value)
             assertFalse(model.showUpdateDialog.value)
+        }
+    }
+
+    @Test fun channelTogglePersistsTheLatestValueAfterLeavingTheScreen() {
+        withSettingsStorage {
+            val firstWriteStarted = CountDownLatch(1)
+            val finishFirstWrite = CountDownLatch(1)
+            try {
+                val writes = CopyOnWriteArrayList<Boolean>()
+                val model = CheckUpdateViewModel(
+                    mock<Application>(),
+                    { CheckUpdateResult(hasUpdate = false) },
+                    { _, _, _ -> error("unused") },
+                    { enabled ->
+                        if (enabled) {
+                            firstWriteStarted.countDown()
+                            finishFirstWrite.await(5, TimeUnit.SECONDS)
+                        }
+                        writes.add(enabled)
+                    }
+                )
+                val store = ViewModelStore().apply { put("update", model) }
+
+                model.toggleCheckPreRelease(true)
+                assertTrue(firstWriteStarted.await(5, TimeUnit.SECONDS))
+                model.toggleCheckPreRelease(false)
+                store.clear()
+                finishFirstWrite.countDown()
+
+                runBlocking {
+                    withTimeout(5_000) {
+                        while (writes.size < 2) kotlinx.coroutines.delay(10)
+                    }
+                }
+                assertEquals(listOf(true, false), writes)
+            } finally {
+                finishFirstWrite.countDown()
+            }
         }
     }
 

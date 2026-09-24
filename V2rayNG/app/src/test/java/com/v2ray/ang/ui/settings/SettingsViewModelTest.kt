@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
+import androidx.lifecycle.ViewModelStore
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,6 +24,9 @@ import org.mockito.Mockito.mockStatic
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SettingsViewModelTest {
@@ -46,6 +50,43 @@ class SettingsViewModelTest {
             assertFalse(SettingsViewModel(application, { stored.get() }, { stored.set(it) })
                 .autoCheckUpdate.value)
         } finally {
+            Dispatchers.resetMain()
+            mainDispatcher.close()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun rapidSwitchesPersistTheLastValueEvenAfterLeavingSettings() {
+        val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        Dispatchers.setMain(mainDispatcher)
+        val firstWriteStarted = CountDownLatch(1)
+        val finishFirstWrite = CountDownLatch(1)
+        try {
+            val writes = CopyOnWriteArrayList<Boolean>()
+            val model = SettingsViewModel(mock<Application>(), { true }, { enabled ->
+                if (!enabled) {
+                    firstWriteStarted.countDown()
+                    finishFirstWrite.await(5, TimeUnit.SECONDS)
+                }
+                writes.add(enabled)
+            })
+            val store = ViewModelStore().apply { put("settings", model) }
+
+            model.setAutoCheckUpdate(false)
+            assertTrue(firstWriteStarted.await(5, TimeUnit.SECONDS))
+            model.setAutoCheckUpdate(true)
+            store.clear()
+            finishFirstWrite.countDown()
+
+            runBlocking {
+                withTimeout(5_000) {
+                    while (writes.size < 2) delay(10)
+                }
+            }
+            assertEquals(listOf(false, true), writes)
+        } finally {
+            finishFirstWrite.countDown()
             Dispatchers.resetMain()
             mainDispatcher.close()
         }
