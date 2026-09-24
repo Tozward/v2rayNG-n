@@ -432,6 +432,14 @@
     <string name="update_now">Cập nhật ngay</string>
     <string name="update_check_pre_release">Kiểm tra bản phát hành thử</string>
     <string name="update_checking_for_update">Đang kiểm tra bản cập nhật…</string>
+    <string name="title_pref_auto_check_update">Tự động kiểm tra bản cập nhật</string>
+    <string name="summary_pref_auto_check_update">Kiểm tra khi khởi động, tối đa một lần mỗi 6 giờ.</string>
+    <string name="update_downloading">Đang tải bản cập nhật… %1$d%%</string>
+    <string name="update_install_downloaded">Cài đặt bản cập nhật đã tải</string>
+    <string name="update_download_failed">Tải bản cập nhật thất bại. Hãy thử lại.</string>
+    <string name="update_install_permission_required">Cho phép v2rayNG cài đặt ứng dụng rồi thử lại.</string>
+    <string name="update_install_unavailable">Không thể mở trình cài đặt ứng dụng.</string>
+    <string name="update_check_failed">Không thể kiểm tra bản cập nhật. Hãy thử lại.</string>
 
     <string name="title_policy_group_type">Loại nhóm chính sách</string>
     <string name="title_policy_group_subscription_id">Từ nhóm đăng ký</string>

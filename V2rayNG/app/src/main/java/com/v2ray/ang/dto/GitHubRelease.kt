@@ -15,8 +15,14 @@ data class GitHubRelease(
     val publishedAt: String = ""
 ) {
     data class Asset(
+        @SerializedName("id")
+        val id: Long = 0,
         @SerializedName("name")
         val name: String,
+        @SerializedName("size")
+        val size: Long = 0,
+        @SerializedName("digest")
+        val digest: String? = null,
         @SerializedName("browser_download_url")
         val browserDownloadUrl: String
     )

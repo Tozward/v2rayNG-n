@@ -438,6 +438,14 @@
     <string name="update_now">Обновить</string>
     <string name="update_check_pre_release">Проверять предварительные версии</string>
     <string name="update_checking_for_update">Проверка обновления…</string>
+    <string name="title_pref_auto_check_update">Автоматически проверять обновления</string>
+    <string name="summary_pref_auto_check_update">Проверка при запуске не чаще одного раза в 6 часов.</string>
+    <string name="update_downloading">Загрузка обновления… %1$d%%</string>
+    <string name="update_install_downloaded">Установить загруженное обновление</string>
+    <string name="update_download_failed">Не удалось загрузить обновление. Повторите попытку.</string>
+    <string name="update_install_permission_required">Разрешите v2rayNG устанавливать приложения и повторите попытку.</string>
+    <string name="update_install_unavailable">Не удалось открыть установщик приложений.</string>
+    <string name="update_check_failed">Не удалось проверить обновления. Повторите попытку.</string>
 
     <string name="title_policy_group_type">Тип политики группы</string>
     <string name="title_policy_group_subscription_id">Из группы подписки</string>

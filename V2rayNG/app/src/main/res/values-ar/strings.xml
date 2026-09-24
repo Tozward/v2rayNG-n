@@ -442,6 +442,14 @@
     <string name="update_now">التحديث الآن</string>
     <string name="update_check_pre_release">التحقق من الإصدارات التجريبية</string>
     <string name="update_checking_for_update">جارٍ التحقق من وجود تحديث…</string>
+    <string name="title_pref_auto_check_update">التحقق تلقائيًا من التحديثات</string>
+    <string name="summary_pref_auto_check_update">يتحقق عند التشغيل مرة واحدة على الأكثر كل 6 ساعات.</string>
+    <string name="update_downloading">جارٍ تنزيل التحديث… %1$d%%</string>
+    <string name="update_install_downloaded">تثبيت التحديث الذي تم تنزيله</string>
+    <string name="update_download_failed">فشل تنزيل التحديث. حاول مجددًا.</string>
+    <string name="update_install_permission_required">اسمح لـ v2rayNG بتثبيت التطبيقات ثم حاول مجددًا.</string>
+    <string name="update_install_unavailable">تعذر فتح مثبّت التطبيقات.</string>
+    <string name="update_check_failed">تعذر التحقق من التحديثات. حاول مجددًا.</string>
 
     <string name="title_policy_group_type">نوع مجموعة السياسات</string>
     <string name="title_policy_group_subscription_id">من مجموعة الاشتراك</string>

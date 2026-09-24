@@ -1,6 +1,12 @@
 package com.v2ray.ang.ui.checkupdate
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -10,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -17,13 +24,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.v2ray.ang.AppConfig
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreNativeManager
+import com.v2ray.ang.dto.CheckUpdateResult
+import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.ui.base.BaseComponentActivity
 import com.v2ray.ang.ui.compose.AppTopBar
 import com.v2ray.ang.ui.compose.NavigationBarsSpacer
@@ -31,36 +45,143 @@ import com.v2ray.ang.ui.compose.SettingsMenuItem
 import com.v2ray.ang.ui.compose.SettingsSwitchItem
 import com.v2ray.ang.ui.compose.VersionInfoBlock
 import com.v2ray.ang.ui.compose.verticalScrollbar
-import com.v2ray.ang.util.Utils
+import com.v2ray.ang.util.LogUtil
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import java.io.File
 
 class CheckUpdateActivity : BaseComponentActivity() {
 
+    companion object {
+        private const val EXTRA_VERSION = "update_version"
+        private const val EXTRA_NOTES = "update_notes"
+        private const val EXTRA_URL = "update_url"
+        private const val EXTRA_SIZE = "update_size"
+        private const val EXTRA_DIGEST = "update_digest"
+        private const val EXTRA_PRE_RELEASE = "update_pre_release"
+
+        fun installIntent(context: android.content.Context, update: CheckUpdateResult): Intent =
+            Intent(context, CheckUpdateActivity::class.java).apply {
+                putExtra(EXTRA_VERSION, update.latestVersion)
+                putExtra(EXTRA_NOTES, update.releaseNotes)
+                putExtra(EXTRA_URL, update.downloadUrl)
+                putExtra(EXTRA_SIZE, update.assetSize)
+                putExtra(EXTRA_DIGEST, update.assetDigest)
+                putExtra(EXTRA_PRE_RELEASE, update.isPreRelease)
+            }
+    }
+
     private val viewModel: CheckUpdateViewModel by viewModels()
+    private var installAttempted = false
+
+    private val installPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val apk = viewModel.pendingApk.value ?: return@registerForActivityResult
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                packageManager.canRequestPackageInstalls()
+            ) {
+                launchInstaller(apk)
+            } else {
+                toastError(R.string.update_install_permission_required)
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) {
-            viewModel.checkForUpdates()
+        installAttempted = savedInstanceState?.getBoolean("install_attempted") ?: false
+        if (savedInstanceState == null || viewModel.updateResult.value == null) {
+            val update = intent.getStringExtra(EXTRA_VERSION)?.let { version ->
+                CheckUpdateResult(
+                    hasUpdate = true,
+                    latestVersion = version,
+                    releaseNotes = intent.getStringExtra(EXTRA_NOTES),
+                    downloadUrl = intent.getStringExtra(EXTRA_URL),
+                    assetSize = intent.getLongExtra(EXTRA_SIZE, 0),
+                    assetDigest = intent.getStringExtra(EXTRA_DIGEST),
+                    isPreRelease = intent.getBooleanExtra(EXTRA_PRE_RELEASE, false)
+                )
+            }
+            if (update != null) viewModel.offerUpdate(update) else viewModel.checkForUpdates()
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.pendingApk.collect { apk ->
+                    if (apk != null && !installAttempted) {
+                        installAttempted = true
+                        requestInstall(apk)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("install_attempted", installAttempted)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun requestInstall(apk: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            try {
+                installPermissionLauncher.launch(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                )
+            } catch (error: RuntimeException) {
+                LogUtil.e(AppConfig.TAG, "Cannot request update install permission", error)
+                toastError(R.string.update_install_permission_required)
+            }
+            return
+        }
+        launchInstaller(apk)
+    }
+
+    private fun launchInstaller(apk: File) {
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.cache", apk)
+            startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            viewModel.consumePendingApk()
+        } catch (error: ActivityNotFoundException) {
+            LogUtil.e(AppConfig.TAG, "No APK installer available", error)
+            toastError(R.string.update_install_unavailable)
+        } catch (error: SecurityException) {
+            LogUtil.e(AppConfig.TAG, "APK installer rejected request", error)
+            toastError(R.string.update_install_unavailable)
         }
     }
 
     @Composable
     override fun ScreenContent() {
-        CheckUpdateScreen(viewModel = viewModel, onBackClick = { finish() })
+        CheckUpdateScreen(
+            viewModel = viewModel,
+            onBackClick = { finish() },
+            onInstallReady = { apk ->
+                installAttempted = true
+                requestInstall(apk)
+            }
+        )
     }
 }
 
 @Composable
 fun CheckUpdateScreen(
     viewModel: CheckUpdateViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onInstallReady: (File) -> Unit
 ) {
-    val context = LocalContext.current
-
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val checkPreRelease by viewModel.checkPreRelease.collectAsStateWithLifecycle()
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsStateWithLifecycle()
     val updateResult by viewModel.updateResult.collectAsStateWithLifecycle()
+    val progress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val pendingApk by viewModel.pendingApk.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     val libVersion = CoreNativeManager.getLibVersion()
     val versionText = "v${BuildConfig.VERSION_NAME} ($libVersion)"
@@ -71,7 +192,7 @@ fun CheckUpdateScreen(
             AppTopBar(
                 title = stringResource(R.string.update_check_for_update),
                 onBackClick = onBackClick,
-                isLoading = isLoading
+                isLoading = isLoading || progress != null
             )
         }
     ) { innerPadding ->
@@ -92,40 +213,72 @@ fun CheckUpdateScreen(
                 title = stringResource(R.string.update_check_for_update),
                 onClick = { viewModel.checkForUpdates() }
             )
+            statusMessage?.let { message ->
+                Text(
+                    text = stringResource(message),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            if (progress != null) {
+                Text(
+                    text = stringResource(R.string.update_downloading, progress ?: 0),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LinearProgressIndicator(
+                    progress = { (progress ?: 0) / 100f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            pendingApk?.let { apk ->
+                SettingsMenuItem(
+                    icon = painterResource(R.drawable.ic_check_update_24dp),
+                    title = stringResource(R.string.update_install_downloaded),
+                    onClick = { onInstallReady(apk) }
+                )
+            }
             VersionInfoBlock(versionText = versionText)
             NavigationBarsSpacer()
         }
     }
 
     if (showUpdateDialog && updateResult != null) {
-        val result = updateResult!!
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissUpdateDialog() },
-            title = { Text(stringResource(R.string.update_new_version_found, result.latestVersion ?: "")) },
-            text = {
-                val scrollState = rememberScrollState()
-                Text(
-                    text = result.releaseNotes.orEmpty(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(scrollState)
-                        .verticalScrollbar(scrollState)
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.dismissUpdateDialog()
-                    result.downloadUrl?.let { Utils.openUri(context, it) }
-                }) {
-                    Text(stringResource(R.string.update_now))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.dismissUpdateDialog() }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
+        UpdateOfferDialog(
+            result = updateResult!!,
+            onConfirm = viewModel::startDownload,
+            onDismiss = viewModel::dismissUpdateDialog
         )
     }
+}
+
+@Composable
+fun UpdateOfferDialog(
+    result: CheckUpdateResult,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.update_new_version_found, result.latestVersion ?: "")) },
+        text = {
+            val scrollState = rememberScrollState()
+            Text(
+                text = result.releaseNotes.orEmpty(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+                    .verticalScrollbar(scrollState)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.update_now))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface
+    )
 }

@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.dto.entities.ProfileItem
+import com.v2ray.ang.ui.checkupdate.UpdateOfferDialog
 import com.v2ray.ang.ui.compose.LocalDarkTheme
 import com.v2ray.ang.ui.compose.QRCodeDialog
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -49,6 +50,7 @@ fun MainScreen(
     val doubleColumnDisplay = uiState.doubleColumnDisplay
     val confirmRemove = uiState.confirmRemove
     val shareQRCodeBitmap = uiState.shareQRCodeBitmap
+    val availableUpdate by mainViewModel.availableUpdate.collectAsStateWithLifecycle()
 
     val isDarkTheme = LocalDarkTheme.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -135,6 +137,13 @@ fun MainScreen(
     }
     if (shareQRCodeBitmap != null) {
         QRCodeDialog(bitmap = shareQRCodeBitmap, onDismiss = { onAction(MainAction.DismissQRCodeDialog) })
+    }
+    availableUpdate?.let { update ->
+        UpdateOfferDialog(
+            result = update,
+            onConfirm = { onAction(MainAction.InstallAvailableUpdate) },
+            onDismiss = { onAction(MainAction.DismissAvailableUpdate) }
+        )
     }
 
     ModalNavigationDrawer(

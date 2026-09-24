@@ -104,6 +104,7 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val autoCheckUpdate by viewModel.autoCheckUpdate.collectAsStateWithLifecycle()
     val systemVpnSettingsAvailable by viewModel.systemVpnSettingsAvailable.collectAsStateWithLifecycle()
     var uiSettingsExpanded by rememberSaveable { mutableStateOf(true) }
     var vpnSettingsExpanded by rememberSaveable { mutableStateOf(true) }
@@ -241,6 +242,12 @@ fun SettingsScreen(
                 onExpandedChange = { uiSettingsExpanded = it }
             )
             if (uiSettingsExpanded) {
+                SettingsSwitchItem(
+                    title = stringResource(R.string.title_pref_auto_check_update),
+                    summary = stringResource(R.string.summary_pref_auto_check_update),
+                    checked = autoCheckUpdate,
+                    onCheckedChange = viewModel::setAutoCheckUpdate
+                )
                 SettingsSwitchItem(
                     title = stringResource(R.string.title_pref_speed_enabled),
                     summary = stringResource(R.string.summary_pref_speed_enabled),

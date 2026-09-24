@@ -46,6 +46,9 @@ sealed interface MainAction {
     data object SortByTestResults : MainAction
     data object UpdateSubscriptions : MainAction
     data object ExportAll : MainAction
+    data object AutoCheckUpdate : MainAction
+    data object InstallAvailableUpdate : MainAction
+    data object DismissAvailableUpdate : MainAction
 
     data object ImportQRcode : MainAction
     data object ImportClipboard : MainAction

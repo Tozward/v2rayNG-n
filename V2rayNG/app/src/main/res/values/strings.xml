@@ -434,6 +434,14 @@
     <string name="update_now">Update now</string>
     <string name="update_check_pre_release">Check pre-release versions</string>
     <string name="update_checking_for_update">Checking for update…</string>
+    <string name="title_pref_auto_check_update">Automatically check for updates</string>
+    <string name="summary_pref_auto_check_update">Checks on launch at most once every 6 hours.</string>
+    <string name="update_downloading">Downloading update… %1$d%%</string>
+    <string name="update_install_downloaded">Install downloaded update</string>
+    <string name="update_download_failed">Update download failed. Try again.</string>
+    <string name="update_install_permission_required">Allow v2rayNG to install apps, then try again.</string>
+    <string name="update_install_unavailable">Could not open the app installer.</string>
+    <string name="update_check_failed">Could not check for updates. Try again.</string>
 
     <string name="title_policy_group_type">Policy group type</string>
     <string name="title_policy_group_subscription_id">From subscription group</string>

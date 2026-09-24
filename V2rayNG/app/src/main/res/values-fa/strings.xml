@@ -434,6 +434,14 @@
     <string name="update_now">اکنون به روز رسانی کنید</string>
     <string name="update_check_pre_release">بررسی نسخه پیش از انتشار</string>
     <string name="update_checking_for_update">در حال بررسی برای به‌روزرسانی…</string>
+    <string name="title_pref_auto_check_update">بررسی خودکار به‌روزرسانی‌ها</string>
+    <string name="summary_pref_auto_check_update">هنگام اجرا، حداکثر هر ۶ ساعت یک بار بررسی می‌کند.</string>
+    <string name="update_downloading">در حال دانلود به‌روزرسانی… %1$d%%</string>
+    <string name="update_install_downloaded">نصب به‌روزرسانی دانلودشده</string>
+    <string name="update_download_failed">دانلود به‌روزرسانی ناموفق بود. دوباره تلاش کنید.</string>
+    <string name="update_install_permission_required">به v2rayNG اجازه نصب برنامه بدهید و دوباره تلاش کنید.</string>
+    <string name="update_install_unavailable">باز کردن نصب‌کننده برنامه ممکن نشد.</string>
+    <string name="update_check_failed">بررسی به‌روزرسانی ناموفق بود. دوباره تلاش کنید.</string>
 
     <string name="title_policy_group_type">نوع گروه خط مشی</string>
     <string name="title_policy_group_subscription_id">از گروه اشتراک</string>

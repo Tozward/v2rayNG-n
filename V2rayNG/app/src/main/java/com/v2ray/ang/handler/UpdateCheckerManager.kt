@@ -6,101 +6,202 @@ import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
 import com.v2ray.ang.dto.UrlContentRequest
-import com.v2ray.ang.extension.concatUrl
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
-import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.IOException
+import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 object UpdateCheckerManager {
-    suspend fun checkForUpdate(includePreRelease: Boolean = false): CheckUpdateResult = withContext(Dispatchers.IO) {
-        val url = if (includePreRelease) {
-            AppConfig.APP_API_URL
-        } else {
-            AppConfig.APP_API_URL.concatUrl("latest")
+    private const val AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+    private val versionPattern = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$")
+    private val digestPattern = Regex("^sha256:[0-9a-fA-F]{64}$")
+
+    fun shouldAutoCheck(enabled: Boolean, lastCheckedAt: Long, now: Long): Boolean =
+        enabled && (lastCheckedAt <= 0 || now < lastCheckedAt || now - lastCheckedAt >= AUTO_CHECK_INTERVAL_MS)
+
+    suspend fun checkForUpdate(
+        includePreRelease: Boolean,
+        allowProxyFallback: Boolean = true
+    ): CheckUpdateResult {
+        val response = withContext(Dispatchers.IO) {
+            val url = "${AppConfig.APP_API_URL}?per_page=20"
+            val timeout = if (allowProxyFallback) 5000 else 3500
+            val direct = HttpUtil.getUrlContent(UrlContentRequest(url = url, timeout = timeout))
+            val result = direct ?: if (allowProxyFallback) {
+                    HttpUtil.getUrlContent(
+                        UrlContentRequest(
+                            url = url,
+                            timeout = 5000,
+                            httpPort = SettingsManager.getHttpPort(),
+                            proxyUsername = SettingsManager.getSocksUsername(),
+                            proxyPassword = SettingsManager.getSocksPassword()
+                        )
+                    )
+                } else null
+            result ?: throw IOException("Could not load release list")
         }
-
-        val proxyUsername = SettingsManager.getSocksUsername()
-        val proxyPassword = SettingsManager.getSocksPassword()
-
-        var response = HttpUtil.getUrlContent(
-            UrlContentRequest(
-                url = url,
-                timeout = 5000
+        return withContext(Dispatchers.Default) {
+            val releases = JsonUtil.fromJsonSafe(response, Array<GitHubRelease>::class.java)
+                ?: throw IOException("Invalid release list")
+            selectUpdate(
+                releases.asList(),
+                BuildConfig.VERSION_NAME,
+                includePreRelease,
+                Build.SUPPORTED_ABIS.asList(),
+                BuildConfig.APPLICATION_ID.endsWith(".fdroid")
             )
-        )
-        if (response.isNullOrEmpty()) {
-            val httpPort = SettingsManager.getHttpPort()
-            response = HttpUtil.getUrlContent(
-                UrlContentRequest(
-                    url = url,
-                    timeout = 5000,
-                    httpPort = httpPort,
-                    proxyUsername = proxyUsername,
-                    proxyPassword = proxyPassword
-                )
-            )
-                ?: throw IllegalStateException("Failed to get response")
-        }
-
-        val latestRelease = if (includePreRelease) {
-            JsonUtil.fromJsonSafe(response, Array<GitHubRelease>::class.java)
-                ?.firstOrNull()
-                ?: throw IllegalStateException("No pre-release found")
-        } else {
-            JsonUtil.fromJsonSafe(response, GitHubRelease::class.java)
-        }
-        if (latestRelease == null) {
-            return@withContext CheckUpdateResult(hasUpdate = false)
-        }
-
-        val latestVersion = latestRelease.tagName.removePrefix("v")
-        LogUtil.i(
-            AppConfig.TAG,
-            "Found new version: $latestVersion (current: ${BuildConfig.VERSION_NAME})"
-        )
-
-        return@withContext if (compareVersions(latestVersion, BuildConfig.VERSION_NAME) > 0) {
-            val downloadUrl = getDownloadUrl(latestRelease, Build.SUPPORTED_ABIS[0])
-            CheckUpdateResult(
-                hasUpdate = true,
-                latestVersion = latestVersion,
-                releaseNotes = latestRelease.body,
-                downloadUrl = downloadUrl,
-                isPreRelease = latestRelease.prerelease
-            )
-        } else {
-            CheckUpdateResult(hasUpdate = false)
         }
     }
 
-    private fun compareVersions(version1: String, version2: String): Int {
-        val v1 = version1.split(".")
-        val v2 = version2.split(".")
-
-        for (i in 0 until maxOf(v1.size, v2.size)) {
-            val num1 = if (i < v1.size) v1[i].toInt() else 0
-            val num2 = if (i < v2.size) v2[i].toInt() else 0
-            if (num1 != num2) return num1 - num2
-        }
-        return 0
+    internal fun selectUpdate(
+        releases: List<GitHubRelease>,
+        currentVersion: String,
+        includePreRelease: Boolean,
+        supportedAbis: List<String>,
+        fdroid: Boolean
+    ): CheckUpdateResult {
+        val current = parseVersion(currentVersion) ?: throw IllegalStateException("Invalid app version")
+        val selected = releases.asSequence()
+            .filter { includePreRelease || !it.prerelease }
+            .mapNotNull { release ->
+                val version = parseVersion(release.tagName) ?: return@mapNotNull null
+                if (version <= current) return@mapNotNull null
+                val asset = findAsset(release, supportedAbis, fdroid) ?: return@mapNotNull null
+                Triple(release, version, asset)
+            }
+            .maxWithOrNull { first, second -> first.second.compareTo(second.second) }
+            ?: return CheckUpdateResult(hasUpdate = false)
+        val (release, _, asset) = selected
+        return CheckUpdateResult(
+            hasUpdate = true,
+            latestVersion = release.tagName.removePrefix("v"),
+            releaseNotes = release.body,
+            downloadUrl = "${AppConfig.APP_API_URL}/assets/${asset.id}",
+            assetSize = asset.size,
+            assetDigest = asset.digest,
+            isPreRelease = release.prerelease
+        )
     }
 
-    private fun getDownloadUrl(release: GitHubRelease, abi: String): String {
-        val fDroid = "fdroid"
-
-        val assetsByAbi = release.assets.filter {
-            (it.name.contains(abi, true))
+    private fun findAsset(
+        release: GitHubRelease,
+        supportedAbis: List<String>,
+        fdroid: Boolean
+    ): GitHubRelease.Asset? {
+        val variant = if (fdroid) "-fdroid" else ""
+        val version = release.tagName.removePrefix("v")
+        val prefix = "v2rayNG_${version}${variant}_"
+        val abis = supportedAbis + "universal"
+        return abis.firstNotNullOfOrNull { abi ->
+            release.assets.firstOrNull { asset ->
+                asset.name == "$prefix$abi.apk" && asset.id > 0 && asset.size > 0 &&
+                    asset.digest?.matches(digestPattern) == true
+            }
         }
+    }
 
-        val asset = if (BuildConfig.APPLICATION_ID.contains(fDroid, ignoreCase = true)) {
-            assetsByAbi.firstOrNull { it.name.contains(fDroid) }
-        } else {
-            assetsByAbi.firstOrNull { !it.name.contains(fDroid) }
+    private data class Version(val numbers: List<Int>, val preRelease: List<String>?) : Comparable<Version> {
+        override fun compareTo(other: Version): Int {
+            for (index in numbers.indices) {
+                val comparison = numbers[index].compareTo(other.numbers[index])
+                if (comparison != 0) return comparison
+            }
+            if (preRelease == null) return if (other.preRelease == null) 0 else 1
+            if (other.preRelease == null) return -1
+            for (index in 0 until minOf(preRelease.size, other.preRelease.size)) {
+                val left = preRelease[index]
+                val right = other.preRelease[index]
+                val leftNumber = left.toLongOrNull()
+                val rightNumber = right.toLongOrNull()
+                val comparison = when {
+                    leftNumber != null && rightNumber != null -> leftNumber.compareTo(rightNumber)
+                    leftNumber != null -> -1
+                    rightNumber != null -> 1
+                    else -> left.compareTo(right)
+                }
+                if (comparison != 0) return comparison
+            }
+            return preRelease.size.compareTo(other.preRelease.size)
         }
+    }
 
-        return asset?.browserDownloadUrl
-            ?: throw IllegalStateException("No compatible APK found")
+    private fun parseVersion(raw: String): Version? {
+        val match = versionPattern.matchEntire(raw) ?: return null
+        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: return null }
+        val suffix = match.groupValues[4].takeIf { it.isNotEmpty() }
+        return Version(numbers, suffix?.split('.'))
+    }
+
+    suspend fun downloadApk(
+        cacheDir: File,
+        update: CheckUpdateResult,
+        onProgress: (Int) -> Unit
+    ): File = withContext(Dispatchers.IO) {
+        val url = update.downloadUrl ?: throw IOException("Missing release asset")
+        val expectedDigest = update.assetDigest?.takeIf { it.matches(digestPattern) }
+            ?: throw IOException("Missing release digest")
+        val expectedSize = update.assetSize.takeIf { it > 0 }
+            ?: throw IOException("Missing release size")
+        val updateDir = File(cacheDir, "updates")
+        if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Could not create update cache")
+        val pending = File(updateDir, "pending.apk")
+        val ready = File(updateDir, "update.apk")
+        val client = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/octet-stream")
+            .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
+            .build()
+        try {
+            val hash = MessageDigest.getInstance("SHA-256")
+            var received = 0L
+            var lastProgress = -1
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
+                val body = response.body ?: throw IOException("Empty release download")
+                body.byteStream().use { input ->
+                    pending.outputStream().use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            hash.update(buffer, 0, count)
+                            received += count
+                            if (received > expectedSize) throw IOException("Release size exceeded")
+                            val progress = (received * 100 / expectedSize).toInt()
+                            if (progress != lastProgress) {
+                                lastProgress = progress
+                                onProgress(progress)
+                            }
+                        }
+                    }
+                }
+            }
+            if (received != expectedSize) throw IOException("Release size mismatch")
+            val actualDigest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
+                throw IOException("Release digest mismatch")
+            }
+            if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
+            if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
+            ready
+        } catch (error: Throwable) {
+            pending.delete()
+            throw error
+        }
     }
 }

@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.AppConfig
+import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.R
+import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.ConnectionTestResult
 import com.v2ray.ang.dto.GroupMapItem
 import com.v2ray.ang.dto.LocateTarget
@@ -18,6 +20,8 @@ import com.v2ray.ang.extension.delay
 import com.v2ray.ang.extension.isComplexType
 import com.v2ray.ang.extension.matchesPattern
 import com.v2ray.ang.extension.moveItem
+import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.handler.UpdateCheckerManager
 import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CancellationException
@@ -85,6 +89,9 @@ class MainViewModel(
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    private val _availableUpdate = MutableStateFlow<CheckUpdateResult?>(null)
+    val availableUpdate: StateFlow<CheckUpdateResult?> = _availableUpdate.asStateFlow()
+    private var autoUpdateJob: Job? = null
 
     // ---------- Keyword filtering ----------
     @Volatile
@@ -285,6 +292,8 @@ class MainViewModel(
             MainAction.SortByTestResults -> sortByTestResultsAsync()
             MainAction.UpdateSubscriptions -> importConfigViaSub()
             MainAction.ExportAll -> exportAllAsync()
+            MainAction.AutoCheckUpdate -> autoCheckUpdate()
+            MainAction.DismissAvailableUpdate -> dismissAvailableUpdate()
             is MainAction.SelectGroup -> subscriptionIdChanged(action.groupId)
             is MainAction.SelectServer -> updateSelectedGuid(action.guid)
             is MainAction.RemoveServer -> removeServerAndRefresh(action.guid)
@@ -307,12 +316,54 @@ class MainViewModel(
             MainAction.ImportConfigLocal,
             is MainAction.ImportManually,
             MainAction.RestartService,
+            MainAction.InstallAvailableUpdate,
             MainAction.LocateSelectedServer,
             is MainAction.EditServer,
             is MainAction.ShareClipboard,
             is MainAction.ShareFullContent -> {
                 // Handled by Activity via its onAction lambda
             }
+        }
+    }
+
+    private fun autoCheckUpdate() {
+        if (autoUpdateJob?.isActive == true) return
+        autoUpdateJob = viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            if (!UpdateCheckerManager.shouldAutoCheck(
+                    MmkvManager.decodeSettingsBool(AppConfig.PREF_AUTO_CHECK_UPDATE, true),
+                    MmkvManager.decodeSettingsLong(AppConfig.PREF_LAST_UPDATE_CHECK, 0),
+                    now
+                )) return@launch
+            try {
+                val includePreRelease = MmkvManager.decodeSettingsBool(
+                    AppConfig.PREF_CHECK_UPDATE_PRE_RELEASE,
+                    BuildConfig.VERSION_NAME.contains('-')
+                )
+                val result = UpdateCheckerManager.checkForUpdate(includePreRelease, allowProxyFallback = false)
+                MmkvManager.encodeSettings(AppConfig.PREF_LAST_UPDATE_CHECK, System.currentTimeMillis())
+                if (result.hasUpdate && result.latestVersion != MmkvManager.decodeSettingsString(
+                        AppConfig.PREF_DISMISSED_UPDATE_TAG, ""
+                    )) {
+                    _availableUpdate.value = result
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                LogUtil.e(AppConfig.TAG, "Automatic update check failed", error)
+            }
+        }
+    }
+
+    fun clearAvailableUpdate() {
+        _availableUpdate.value = null
+    }
+
+    private fun dismissAvailableUpdate() {
+        val version = _availableUpdate.value?.latestVersion
+        clearAvailableUpdate()
+        if (version != null) viewModelScope.launch(Dispatchers.IO) {
+            MmkvManager.encodeSettings(AppConfig.PREF_DISMISSED_UPDATE_TAG, version)
         }
     }
 

@@ -434,6 +434,14 @@
     <string name="update_now">এখনই আপডেট করুন</string>
     <string name="update_check_pre_release">প্রাক্‌-রিলিজ পরীক্ষা করুন</string>
     <string name="update_checking_for_update">আপডেট পরীক্ষা করা হচ্ছে…</string>
+    <string name="title_pref_auto_check_update">স্বয়ংক্রিয়ভাবে আপডেট পরীক্ষা করুন</string>
+    <string name="summary_pref_auto_check_update">চালু করার সময় পরীক্ষা করে, সর্বোচ্চ প্রতি ৬ ঘণ্টায় একবার।</string>
+    <string name="update_downloading">আপডেট ডাউনলোড হচ্ছে… %1$d%%</string>
+    <string name="update_install_downloaded">ডাউনলোড করা আপডেট ইনস্টল করুন</string>
+    <string name="update_download_failed">আপডেট ডাউনলোড ব্যর্থ হয়েছে। আবার চেষ্টা করুন।</string>
+    <string name="update_install_permission_required">v2rayNG-কে অ্যাপ ইনস্টল করার অনুমতি দিন, তারপর আবার চেষ্টা করুন।</string>
+    <string name="update_install_unavailable">অ্যাপ ইনস্টলার খোলা যায়নি।</string>
+    <string name="update_check_failed">আপডেট পরীক্ষা করা যায়নি। আবার চেষ্টা করুন।</string>
 
     <string name="title_policy_group_type">নীতি গ্রুপের ধরন</string>
     <string name="title_policy_group_subscription_id">সাবস্ক্রিপশন গ্রুপ থেকে</string>

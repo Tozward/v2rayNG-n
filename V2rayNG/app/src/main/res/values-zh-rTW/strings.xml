@@ -432,6 +432,14 @@
     <string name="update_now">立即更新</string>
     <string name="update_check_pre_release">檢查預發行版本</string>
     <string name="update_checking_for_update">正在檢查更新中…</string>
+    <string name="title_pref_auto_check_update">啟動時自動檢查更新</string>
+    <string name="summary_pref_auto_check_update">啟動時在背景檢查，每 6 小時最多一次。</string>
+    <string name="update_downloading">正在下載更新… %1$d%%</string>
+    <string name="update_install_downloaded">安裝已下載的更新</string>
+    <string name="update_download_failed">更新下載失敗，請重試。</string>
+    <string name="update_install_permission_required">請允許 v2rayNG 安裝應用程式，然後重試。</string>
+    <string name="update_install_unavailable">無法開啟系統安裝程式。</string>
+    <string name="update_check_failed">檢查更新失敗，請重試。</string>
 
     <string name="title_policy_group_type">策略群組類型</string>
     <string name="title_policy_group_subscription_id">來自訂閱群組</string>
