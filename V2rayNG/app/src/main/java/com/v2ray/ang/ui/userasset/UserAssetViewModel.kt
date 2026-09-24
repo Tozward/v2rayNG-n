@@ -11,13 +11,20 @@ import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.LogUtil
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.io.IOException
 
@@ -82,52 +89,66 @@ class UserAssetViewModel(application: Application) : BaseViewModel(application) 
         }
     }
 
-    fun downloadGeoFiles(
+    suspend fun downloadGeoFiles(
         extDir: File,
         httpPort: Int,
         proxyUsername: String? = null,
         proxyPassword: String? = null
-    ): GeoDownloadResult = downloadGeoFiles(
-        uiState.value.assets,
-        extDir,
-        httpPort,
-        proxyUsername,
-        proxyPassword,
-        HttpUtil::downloadToFile
-    )
+    ): GeoDownloadResult {
+        val downloader = HttpUtil.newFileDownloader(15000, httpPort, proxyUsername, proxyPassword)
+        return downloadGeoFiles(
+            uiState.value.assets,
+            extDir,
+            httpPort,
+            proxyUsername,
+            proxyPassword,
+            downloader::downloadToFile
+        )
+    }
 
-    internal fun downloadGeoFiles(
+    internal suspend fun downloadGeoFiles(
         snapshot: List<AssetUrlCache>,
         extDir: File,
         httpPort: Int,
         proxyUsername: String?,
         proxyPassword: String?,
-        downloadToFile: (UrlContentRequest, File) -> Boolean
-    ): GeoDownloadResult {
-        var successCount = 0
-        val failures = mutableListOf<String>()
-
-        snapshot.forEach { cache ->
-            val item = cache.assetUrl
-            if (tryDownload(item, extDir, httpPort, proxyUsername, proxyPassword, downloadToFile)) {
-                successCount++
-            } else {
-                failures.add(item.remarks)
-            }
-        }
-
-        return GeoDownloadResult(successCount, failures.size, failures)
+        downloadToFile: suspend (UrlContentRequest, File) -> Boolean
+    ): GeoDownloadResult = coroutineScope {
+        val slots = Semaphore(2)
+        val results = snapshot
+            .filter { it.assetUrl.url != "file" }
+            .map { cache ->
+                async(Dispatchers.IO) {
+                    slots.withPermit {
+                        cache.assetUrl.remarks to tryDownload(
+                            cache.assetUrl,
+                            extDir,
+                            httpPort,
+                            proxyUsername,
+                            proxyPassword,
+                            downloadToFile
+                        )
+                    }
+                }
+            }.awaitAll()
+        val failures = results.filterNot { it.second }.map { it.first }
+        GeoDownloadResult(results.size - failures.size, failures.size, failures)
     }
 
-    private fun tryDownload(
+    private suspend fun tryDownload(
         item: AssetUrlItem,
         extDir: File,
         httpPort: Int,
         proxyUsername: String? = null,
         proxyPassword: String? = null,
-        downloadToFile: (UrlContentRequest, File) -> Boolean
+        downloadToFile: suspend (UrlContentRequest, File) -> Boolean
     ): Boolean {
-        val targetTemp = File(extDir, item.remarks + "_temp")
+        val targetTemp = try {
+            File.createTempFile("asset-", ".tmp", extDir)
+        } catch (e: IOException) {
+            LogUtil.e(AppConfig.TAG, "Could not create temporary geo file: ${item.remarks}", e)
+            return false
+        }
         val target = File(extDir, item.remarks)
         try {
             if (
@@ -142,9 +163,12 @@ class UserAssetViewModel(application: Application) : BaseViewModel(application) 
                     targetTemp
                 )
             ) {
+                currentCoroutineContext().ensureActive()
                 if (targetTemp.renameTo(target)) return true
                 throw IOException("Could not replace downloaded geo file: ${item.remarks}")
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to download geo file: ${item.remarks}", e)
         } finally {

@@ -4,6 +4,14 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.AppConfig.LOOPBACK
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.UrlContentRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -269,37 +277,64 @@ object HttpUtil {
         }
     }
 
-    fun downloadToFile(
-        request: UrlContentRequest,
-        targetFile: File
-    ): Boolean {
-        val url = request.url ?: return false
-        val client = buildOkHttpClient(request.timeout, request.httpPort, request.proxyUsername, request.proxyPassword, followRedirects = true)
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .get()
-            .header("Connection", "close")
-        if (request.httpPort != 0 && !request.proxyUsername.isNullOrBlank() && !request.proxyPassword.isNullOrBlank()) {
-            requestBuilder.header("Proxy-Authorization", Credentials.basic(request.proxyUsername, request.proxyPassword))
-        }
+    fun newFileDownloader(
+        timeout: Int,
+        httpPort: Int,
+        proxyUsername: String?,
+        proxyPassword: String?
+    ): FileDownloader = FileDownloader(
+        buildOkHttpClient(timeout, httpPort, proxyUsername, proxyPassword, followRedirects = true)
+    )
 
-        return try {
-            client.newCall(requestBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    LogUtil.w(AppConfig.TAG, "Failed to download file, code=${response.code}")
-                    return false
+    /** One client per user-requested batch reuses connections while keeping the selected route. */
+    class FileDownloader internal constructor(private val client: OkHttpClient) {
+        suspend fun downloadToFile(request: UrlContentRequest, targetFile: File): Boolean = withContext(Dispatchers.IO) {
+            val url = request.url ?: return@withContext false
+            val call = client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .get()
+                    .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
+                    .build()
+            )
+            val cancellationWatcher = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
                 }
-                val body = response.body ?: return false
-                body.byteStream().use { input ->
-                    targetFile.outputStream().use { output ->
-                        input.copyTo(output)
+            }
+            try {
+                currentCoroutineContext().ensureActive()
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        LogUtil.w(AppConfig.TAG, "Failed to download file, code=${response.code}")
+                        return@withContext false
+                    }
+                    val body = response.body ?: return@withContext false
+                    body.byteStream().use { input ->
+                        targetFile.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                        }
                     }
                 }
+                currentCoroutineContext().ensureActive()
                 true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                LogUtil.e(AppConfig.TAG, "Failed to download file", e)
+                false
+            } finally {
+                cancellationWatcher.cancel()
             }
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "Failed to download file", e)
-            false
         }
     }
 }
