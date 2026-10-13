@@ -235,9 +235,17 @@ jobs:
           else
             RELEASE_FLAGS=(--latest)
           fi
-          gh release create "$RELEASE_TAG" release-files/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$SOURCE_SHA" \
-            --title "$RELEASE_TAG" \
-            --notes "$NOTES" \
-            "${RELEASE_FLAGS[@]}"
+          DRAFT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [ "$DRAFT" = true ]; then
+            gh release upload "$RELEASE_TAG" release-files/* --repo "$GITHUB_REPOSITORY" --clobber
+          elif [ -n "$DRAFT" ]; then
+            echo "Release already published: $RELEASE_TAG" >&2
+            exit 1
+          else
+            gh release create "$RELEASE_TAG" release-files/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes "$NOTES" \
+              "${RELEASE_FLAGS[@]}"
+          fi
