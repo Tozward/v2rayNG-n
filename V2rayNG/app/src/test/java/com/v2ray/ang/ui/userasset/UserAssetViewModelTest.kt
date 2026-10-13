@@ -10,17 +10,16 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.mockito.Mockito.mock
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 class UserAssetViewModelTest {
-    @get:Rule val files = TemporaryFolder()
+    @TempDir lateinit var files: File
     private val viewModel = UserAssetViewModel(mock(Application::class.java))
 
     @Test
@@ -61,7 +60,7 @@ class UserAssetViewModelTest {
         val attemptedPorts = mutableListOf<Int>()
         val result = viewModel.downloadGeoFiles(
             listOf(AssetUrlCache("asset", AssetUrlItem("geosite.dat", "https://example.com/geosite.dat"))),
-            files.root,
+            files,
             10808,
             "user",
             "password"
@@ -75,16 +74,16 @@ class UserAssetViewModelTest {
 
         assertEquals(listOf(10808), attemptedPorts)
         assertEquals(1, result.successCount)
-        assertEquals("proxy", File(files.root, "geosite.dat").readText())
-        assertTrue(files.root.listFiles().orEmpty().none { it.name.startsWith("asset-") })
+        assertEquals("proxy", File(files, "geosite.dat").readText())
+        assertTrue(files.listFiles().orEmpty().none { it.name.startsWith("asset-") })
     }
 
     @Test
     fun geoDownloadDoesNotFallBackToDirectWhenRunningProxyFails() = runBlocking {
         val asset = listOf(AssetUrlCache("asset", AssetUrlItem("geoip.dat", "https://example.com/geoip.dat")))
-        val target = File(files.root, "geoip.dat").apply { writeText("old") }
+        val target = File(files, "geoip.dat").apply { writeText("old") }
         val attemptedPorts = mutableListOf<Int>()
-        val failed = viewModel.downloadGeoFiles(asset, files.root, 10808, null, null) { request, file ->
+        val failed = viewModel.downloadGeoFiles(asset, files, 10808, null, null) { request, file ->
             attemptedPorts += request.httpPort
             file.writeText("partial")
             false
@@ -93,7 +92,7 @@ class UserAssetViewModelTest {
         assertEquals(listOf(10808), attemptedPorts)
         assertEquals(1, failed.failureCount)
         assertEquals("old", target.readText())
-        assertTrue(files.root.listFiles().orEmpty().none { it.name.startsWith("asset-") })
+        assertTrue(files.listFiles().orEmpty().none { it.name.startsWith("asset-") })
     }
 
     @Test
@@ -101,7 +100,7 @@ class UserAssetViewModelTest {
         val attemptedPorts = mutableListOf<Int>()
         val result = viewModel.downloadGeoFiles(
             listOf(AssetUrlCache("asset", AssetUrlItem("geoip.dat", "https://example.com/geoip.dat"))),
-            files.root,
+            files,
             0,
             null,
             null
@@ -127,7 +126,7 @@ class UserAssetViewModelTest {
         }
 
         val job = async {
-            viewModel.downloadGeoFiles(assets, files.root, 10808, null, null) { _, target ->
+            viewModel.downloadGeoFiles(assets, files, 10808, null, null) { _, target ->
                 val now = active.incrementAndGet()
                 peak.updateAndGet { maxOf(it, now) }
                 if (entered.incrementAndGet() == 2) firstTwoStarted.complete(Unit)
@@ -152,13 +151,13 @@ class UserAssetViewModelTest {
 
     @Test
     fun importedLocalFileIsNotDownloaded() = runBlocking {
-        val local = File(files.root, "custom.dat").apply { writeText("local") }
+        val local = File(files, "custom.dat").apply { writeText("local") }
         val attemptedUrls = mutableListOf<String>()
         val result = viewModel.downloadGeoFiles(
             listOf(
                 AssetUrlCache("local", AssetUrlItem("custom.dat", "file")),
                 AssetUrlCache("remote", AssetUrlItem("geosite.dat", "https://example.com/geosite.dat"))
-            ), files.root, 0, null, null
+            ), files, 0, null, null
         ) { request, target ->
             attemptedUrls += request.url.orEmpty()
             target.writeText("remote")
@@ -173,12 +172,12 @@ class UserAssetViewModelTest {
 
     @Test
     fun cancellationRemovesOnlyTheIncompleteDownload() = runBlocking {
-        val target = File(files.root, "geoip.dat").apply { writeText("old") }
+        val target = File(files, "geoip.dat").apply { writeText("old") }
         val started = CompletableDeferred<Unit>()
         val job = async {
             viewModel.downloadGeoFiles(
                 listOf(AssetUrlCache("asset", AssetUrlItem("geoip.dat", "https://example.com/geoip.dat"))),
-                files.root, 10808, null, null
+                files, 10808, null, null
             ) { _, pending ->
                 pending.writeText("partial")
                 started.complete(Unit)
@@ -189,6 +188,6 @@ class UserAssetViewModelTest {
         withTimeout(5_000) { started.await() }
         job.cancelAndJoin()
         assertEquals("old", target.readText())
-        assertTrue(files.root.listFiles().orEmpty().none { it.name.startsWith("asset-") })
+        assertTrue(files.listFiles().orEmpty().none { it.name.startsWith("asset-") })
     }
 }

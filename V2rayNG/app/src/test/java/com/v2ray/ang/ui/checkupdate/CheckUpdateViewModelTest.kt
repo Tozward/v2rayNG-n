@@ -16,13 +16,13 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mockStatic
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -37,11 +37,11 @@ import java.util.concurrent.TimeUnit
 class CheckUpdateViewModelTest {
     private val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-    @Before fun setUp() {
+    @BeforeEach fun setUp() {
         Dispatchers.setMain(mainDispatcher)
     }
 
-    @After fun tearDown() {
+    @AfterEach fun tearDown() {
         Dispatchers.resetMain()
         mainDispatcher.close()
     }

@@ -1,8 +1,8 @@
 package com.v2ray.ang.helper
 
 import android.app.Activity
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 class MessageHelperTest {
     @Test

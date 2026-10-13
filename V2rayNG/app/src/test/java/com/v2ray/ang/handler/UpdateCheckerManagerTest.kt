@@ -3,12 +3,12 @@ package com.v2ray.ang.handler
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 class UpdateCheckerManagerTest {
-    @get:Rule val temporaryFolder = TemporaryFolder()
+    @TempDir lateinit var temporaryFolder: File
     private val digest = "sha256:" + "a".repeat(64)
 
     @Test
@@ -142,32 +142,32 @@ class UpdateCheckerManagerTest {
                 assetSize = bytes.size.toLong(),
                 assetDigest = actualDigest
             )
-            val target = UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {})
+            val target = UpdateCheckerManager.downloadApk(temporaryFolder, update, {})
             assertEquals(bytes.toList(), target.readBytes().toList())
             assertEquals("application/octet-stream", acceptHeader.get())
 
             var rejected = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update.copy(assetDigest = digest), {}
+                    temporaryFolder, update.copy(assetDigest = digest), {}
                 )
             } catch (_: IOException) {
                 rejected = true
             }
             assertTrue(rejected)
-            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+            assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty()
                 .none { it.name.startsWith("pending-") })
 
             rejected = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update.copy(assetSize = bytes.size.toLong() + 1), {}
+                    temporaryFolder, update.copy(assetSize = bytes.size.toLong() + 1), {}
                 )
             } catch (_: IOException) {
                 rejected = true
             }
             assertTrue(rejected)
-            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+            assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty()
                 .none { it.name.startsWith("pending-") })
         } finally {
             server.close()
@@ -224,13 +224,13 @@ class UpdateCheckerManagerTest {
         )
         try {
             val ready = UpdateCheckerManager.downloadApk(
-                temporaryFolder.root, update, {}, activeProxyPort = proxy.localPort
+                temporaryFolder, update, {}, activeProxyPort = proxy.localPort
             )
             assertEquals(bytes.toList(), ready.readBytes().toList())
             var failed = false
             try {
                 UpdateCheckerManager.downloadApk(
-                    temporaryFolder.root, update, {}, activeProxyPort = proxy.localPort
+                    temporaryFolder, update, {}, activeProxyPort = proxy.localPort
                 )
             } catch (_: IOException) {
                 failed = true
@@ -240,7 +240,7 @@ class UpdateCheckerManagerTest {
             directResponder.join(2_000)
             assertFalse(directUsed.get())
             assertEquals(bytes.toList(), ready.readBytes().toList())
-            assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty()
+            assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty()
                 .none { it.name.startsWith("pending-") })
         } finally {
             direct.close()
@@ -260,12 +260,12 @@ class UpdateCheckerManagerTest {
         )
         var rejected = false
         try {
-            UpdateCheckerManager.downloadApk(temporaryFolder.root, update, {})
+            UpdateCheckerManager.downloadApk(temporaryFolder, update, {})
         } catch (_: IllegalArgumentException) {
             rejected = true
         }
         assertTrue(rejected)
-        assertTrue(temporaryFolder.root.resolve("updates").listFiles().orEmpty().isEmpty())
+        assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty().isEmpty())
     }
 
     private fun release(
