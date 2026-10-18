@@ -24,6 +24,22 @@ class UpdateCheckerManagerTest {
     private val digest = "sha256:" + "a".repeat(64)
 
     @Test
+    fun stableCheckUsesLatestReleaseEvenAfterManyPrereleases() {
+        assertEquals(
+            "https://api.github.com/repos/Tozward/v2rayNG-n/releases/latest",
+            UpdateCheckerManager.releaseUrl(false)
+        )
+        assertEquals(
+            "https://api.github.com/repos/Tozward/v2rayNG-n/releases?per_page=20",
+            UpdateCheckerManager.releaseUrl(true)
+        )
+        val stable = """{"tag_name":"v2.3.11.2","body":"","assets":[],"prerelease":false}"""
+        assertEquals("v2.3.11.2", UpdateCheckerManager.parseReleases(stable, false).single().tagName)
+        val previews = """[{"tag_name":"v2.3.12-testpre.1","body":"","assets":[],"prerelease":true}]"""
+        assertEquals("v2.3.12-testpre.1", UpdateCheckerManager.parseReleases(previews, true).single().tagName)
+    }
+
+    @Test
     fun testpreVersionsCompareNumericallyAndSkipOlderReleases() {
         val releases = listOf(
             release("v2.3.9-testpre.9"),

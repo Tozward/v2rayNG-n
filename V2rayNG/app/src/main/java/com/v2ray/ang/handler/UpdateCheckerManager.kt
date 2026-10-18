@@ -32,13 +32,26 @@ object UpdateCheckerManager {
     fun shouldAutoCheck(enabled: Boolean, lastAttemptAt: Long, now: Long): Boolean =
         enabled && (lastAttemptAt <= 0 || now < lastAttemptAt || now - lastAttemptAt >= AUTO_CHECK_INTERVAL_MS)
 
+    internal fun releaseUrl(includePreRelease: Boolean): String =
+        if (includePreRelease) "${AppConfig.APP_API_URL}?per_page=20"
+        else "${AppConfig.APP_API_URL}/latest"
+
+    internal fun parseReleases(response: String, includePreRelease: Boolean): List<GitHubRelease> {
+        val releases = if (includePreRelease) {
+            JsonUtil.fromJsonSafe(response, Array<GitHubRelease>::class.java)?.asList()
+        } else {
+            JsonUtil.fromJsonSafe(response, GitHubRelease::class.java)?.let { listOf(it) }
+        }
+        return releases ?: throw IOException("Invalid release response")
+    }
+
     suspend fun checkForUpdate(
         includePreRelease: Boolean,
         activeProxyPort: Int? = null,
         quick: Boolean = false
     ): CheckUpdateResult {
         val response = withContext(Dispatchers.IO) {
-            val url = "${AppConfig.APP_API_URL}?per_page=20"
+            val url = releaseUrl(includePreRelease)
             val timeout = if (quick) 3500 else 5000
             if (activeProxyPort != null && activeProxyPort !in 1..65535) {
                 throw IOException("Invalid running proxy port")
@@ -57,10 +70,9 @@ object UpdateCheckerManager {
                 ?: throw IOException("Could not load release list")
         }
         return withContext(Dispatchers.Default) {
-            val releases = JsonUtil.fromJsonSafe(response, Array<GitHubRelease>::class.java)
-                ?: throw IOException("Invalid release list")
+            val releases = parseReleases(response, includePreRelease)
             selectUpdate(
-                releases.asList(),
+                releases,
                 BuildConfig.VERSION_NAME,
                 includePreRelease,
                 Build.SUPPORTED_ABIS.asList(),
