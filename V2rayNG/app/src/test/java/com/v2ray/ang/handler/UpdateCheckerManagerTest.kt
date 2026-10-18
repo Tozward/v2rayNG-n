@@ -209,7 +209,9 @@ class UpdateCheckerManagerTest {
                 server.accept().use { socket ->
                     socket.soTimeout = 5_000
                     val reader = socket.getInputStream().bufferedReader()
-                    while (reader.readLine()?.isNotEmpty() == true) Unit
+                    while (!reader.readLine().isNullOrEmpty()) {
+                        // Consume request headers before stalling the response.
+                    }
                     requestReceived.countDown()
                     releaseResponse.await(5, TimeUnit.SECONDS)
                 }
@@ -264,7 +266,9 @@ class UpdateCheckerManagerTest {
             repeat(2) {
                 proxy.accept().use { socket ->
                     val reader = socket.getInputStream().bufferedReader()
-                    while (reader.readLine()?.isNotEmpty() == true) Unit
+                    while (!reader.readLine().isNullOrEmpty()) {
+                        // Consume request headers before responding.
+                    }
                     val count = proxyRequests.incrementAndGet()
                     socket.getOutputStream().apply {
                         if (count == 1) {

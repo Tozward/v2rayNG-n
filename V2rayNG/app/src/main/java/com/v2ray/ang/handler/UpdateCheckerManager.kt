@@ -235,6 +235,9 @@ object UpdateCheckerManager {
             if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
             if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
             ready
+        } catch (e: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw e
         } finally {
             pending.delete()
         }

@@ -311,7 +311,7 @@ object HttpUtil {
                         LogUtil.w(AppConfig.TAG, "Failed to download file, code=${response.code}")
                         return@withContext false
                     }
-                    val body = response.body ?: return@withContext false
+                    val body = response.body
                     body.byteStream().use { input ->
                         targetFile.outputStream().buffered().use { output ->
                             val buffer = ByteArray(64 * 1024)
