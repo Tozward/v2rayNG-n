@@ -2,7 +2,12 @@ package com.v2ray.ang.handler
 
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,6 +19,8 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -186,6 +193,45 @@ class UpdateCheckerManagerTest {
             assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty()
                 .none { it.name.startsWith("pending-") })
         } finally {
+            server.close()
+            responder.join(1_000)
+        }
+    }
+
+    @Test
+    fun cancellingAStalledDownloadClosesTheRequestPromptly() = runBlocking {
+        val requestReceived = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        server.soTimeout = 5_000
+        val responder = thread(start = true) {
+            try {
+                server.accept().use { socket ->
+                    socket.soTimeout = 5_000
+                    val reader = socket.getInputStream().bufferedReader()
+                    while (reader.readLine()?.isNotEmpty() == true) Unit
+                    requestReceived.countDown()
+                    releaseResponse.await(5, TimeUnit.SECONDS)
+                }
+            } catch (_: IOException) {
+                // Closing the test server also releases a stalled request.
+            }
+        }
+        val update = CheckUpdateResult(
+            hasUpdate = true,
+            downloadUrl = "http://127.0.0.1:${server.localPort}/asset",
+            assetSize = 1,
+            assetDigest = digest
+        )
+        val download = launch { UpdateCheckerManager.downloadApk(temporaryFolder, update, {}) }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { requestReceived.await(5, TimeUnit.SECONDS) })
+            withTimeout(2_000) { download.cancelAndJoin() }
+            assertTrue(temporaryFolder.resolve("updates").listFiles().orEmpty()
+                .none { it.name.startsWith("pending-") })
+        } finally {
+            download.cancel()
+            releaseResponse.countDown()
             server.close()
             responder.join(1_000)
         }

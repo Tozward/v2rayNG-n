@@ -8,6 +8,7 @@ import com.v2ray.ang.dto.GitHubRelease
 import com.v2ray.ang.dto.UrlContentRequest
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
@@ -192,7 +193,7 @@ object UpdateCheckerManager {
             var received = 0L
             var lastProgress = -1
             val call = client.newCall(request)
-            val cancellationWatcher = launch(Dispatchers.Default) {
+            val cancellationWatcher = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                 try {
                     awaitCancellation()
                 } finally {
