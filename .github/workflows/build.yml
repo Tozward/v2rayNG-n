@@ -76,7 +76,7 @@ jobs:
     - name: Fetch AndroidLibXrayLite tag
       run: |
         pushd AndroidLibXrayLite
-        CURRENT_TAG=$(git describe --tags --abbrev=0)
+        CURRENT_TAG=$(git describe --tags --exact-match)
         echo "Current tag in this repo: $CURRENT_TAG"
         echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
         popd
@@ -90,7 +90,7 @@ jobs:
         out-file-path: V2rayNG/app/libs/
 
     - name: Setup Java
-      uses: actions/setup-java@v6.0.1
+      uses: actions/setup-java@v6.1.0
       with:
         distribution: 'temurin'
         java-version: '21'
@@ -113,7 +113,7 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
         ./gradlew assembleRelease \
@@ -121,6 +121,29 @@ jobs:
           "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
           "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
           "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
+
+    - name: Verify native libraries in APKs
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        abis = ('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
+        apks = list(Path('V2rayNG/app/build/outputs/apk').glob('*/release/*.apk'))
+        if len(apks) != 10:
+            raise SystemExit(f'Expected 10 APKs, found {len(apks)}')
+        for apk in apks:
+            targets = abis if apk.stem.endswith('_universal') else [abi for abi in abis if apk.stem.endswith(f'_{abi}')]
+            if not targets:
+                raise SystemExit(f'Unknown APK ABI: {apk.name}')
+            with ZipFile(apk) as archive:
+                for abi in targets:
+                    for library in ('libgojni.so', 'libhev-socks5-tunnel.so', 'libhevsockstun.so'):
+                        entry = f'lib/{abi}/{library}'
+                        if archive.getinfo(entry).file_size == 0:
+                            raise SystemExit(f'Empty native library: {apk.name}: {entry}')
+            print(f'Verified native libraries: {apk.name}')
+        PY
     
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
@@ -224,7 +247,7 @@ jobs:
               }
             done
           done
-          NOTES="Synced with upstream v2.3.11. Includes VLESS Vision testpre, VPN lifecycle and network monitoring improvements, faster per-app loading and search, in-app updates, and bounded concurrent geo-file downloads. When the current daemon is running, app and geo-file downloads use its local proxy; otherwise they connect directly. Downloads never start the VPN or change nodes. APKs are signed with this fork's Android keystore."
+          NOTES="Synced with upstream v2.3.13. Includes subscription usage information and the redesigned group tabs, VLESS Vision testpre, VPN lifecycle and network monitoring improvements, faster per-app loading and search, in-app updates, and bounded concurrent geo-file downloads. When the current daemon is running, app and geo-file downloads use its local proxy; otherwise they connect directly. Downloads never start the VPN or change nodes. APKs are signed with this fork's Android keystore."
           if test -f release-files/v2rayN-public-key.asc; then
             NOTES="$NOTES Detached GPG signatures are included."
           else
