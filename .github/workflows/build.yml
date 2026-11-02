@@ -146,6 +146,21 @@ jobs:
         if-no-files-found: error
         retention-days: 7
 
+    - name: Build shell-UID probe without the device's app_process runtime
+      if: inputs.device_audit
+      run: |
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
+          -o phone-fixtures/audit-probe tools/ci/phoneprobe/main.go
+
+    - name: Preserve isolated phone probe
+      if: inputs.device_audit
+      uses: actions/upload-artifact@v7
+      with:
+        name: phone-audit-probe
+        path: phone-fixtures/audit-probe
+        if-no-files-found: error
+        retention-days: 7
+
     - name: Setup Java
       uses: actions/setup-java@v6.1.0
       with:

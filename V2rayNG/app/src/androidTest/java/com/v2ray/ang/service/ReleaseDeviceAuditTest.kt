@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit
 class ReleaseDeviceAuditTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context: Context = instrumentation.targetContext
+    private var probeBinary: String? = null
 
     @Test
     fun isolatedVpnLifecycleLatencyThroughputAndIdle() {
@@ -50,6 +51,9 @@ class ReleaseDeviceAuditTest {
         require(speedArgument in listOf("true", "false")) { "speedNotification must be true or false" }
         val speedNotification = speedArgument.toBoolean()
         assertEquals("probes must run as the allowlisted shell UID", "2000", shell("id -u").trim())
+        probeBinary = arguments.getString("probeBinary")?.also {
+            require(it == "/data/local/tmp/native-release-probe-20261103") { "unsupported isolated audit probe path" }
+        }
         reportPowerMonitors()
 
         val profiles = mutableListOf<String>()
@@ -289,7 +293,19 @@ class ReleaseDeviceAuditTest {
 
     private fun probeProcess(className: String, mode: String): String {
         val classpath = "${instrumentation.context.applicationInfo.sourceDir}:${context.applicationInfo.sourceDir}"
-        return shell("env CLASSPATH='$classpath' app_process /system/bin $className $mode")
+        val command = probeBinary?.let { "'$it' $mode" }
+            ?: "env CLASSPATH='$classpath' app_process /system/bin $className $mode"
+        val marker = "\nAUDIT_PROBE_EXIT="
+        val result = shell("{ $command; } 2>&1; code=\$?; printf '\\nAUDIT_PROBE_EXIT=%s\\n' \"\$code\"")
+        val exitCode = result.substringAfterLast(marker, "").trim().toIntOrNull()
+        val output = result.substringBeforeLast(marker, result).trim()
+        if (exitCode != 0) {
+            instrumentation.sendStatus(1, Bundle().apply {
+                putString("stream", "AUDIT_PROBE_FAILED mode=$mode exit=$exitCode ${output.take(2048)}\n")
+            })
+            return ""
+        }
+        return output
     }
 
     private fun serviceDump(service: Class<*> = CoreVpnService::class.java) = shell("dumpsys activity services ${context.packageName}/${service.name}")
