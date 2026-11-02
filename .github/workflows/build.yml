@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      debug_only:
+        description: Validate debug APKs without release packaging or publishing
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - master
@@ -136,20 +141,25 @@ jobs:
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
         ./gradlew :app:assemblePlaystoreDebugAndroidTest
         ./gradlew :app:lintPlaystoreDebug :app:lintFdroidDebug
-        ./gradlew assembleRelease \
-          "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
-          "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
-          "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
-          "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
+        if [ "${{ inputs.debug_only }}" != true ]; then
+          ./gradlew assembleRelease \
+            "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
+            "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
+            "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
+            "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
+        fi
 
     - name: Verify native libraries in APKs
+      env:
+        APK_BUILD_TYPE: ${{ inputs.debug_only && 'debug' || 'release' }}
       run: |
         python3 - <<'PY'
+        import os
         from pathlib import Path
         from zipfile import ZipFile
 
         abis = ('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
-        apks = list(Path('V2rayNG/app/build/outputs/apk').glob('*/release/*.apk'))
+        apks = list(Path('V2rayNG/app/build/outputs/apk').glob(f"*/{os.environ['APK_BUILD_TYPE']}/*.apk"))
         if len(apks) != 10:
             raise SystemExit(f'Expected 10 APKs, found {len(apks)}')
         for apk in apks:
@@ -176,28 +186,28 @@ jobs:
 
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() && !inputs.debug_only }}
       with:
         name: arm64-v8a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
 
     - name: Upload armeabi-v7a APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() && !inputs.debug_only }}
       with:
         name: armeabi-v7a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
 
     - name: Upload x86 APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() && !inputs.debug_only }}
       with:
         name: x86-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*x86*.apk
 
     - name: Upload universal APK
       uses: actions/upload-artifact@v7
-      if: ${{ success() }}
+      if: ${{ success() && !inputs.debug_only }}
       with:
         name: universal-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*universal*.apk
@@ -256,7 +266,7 @@ jobs:
   sign-and-release:
     needs: [build, android-smoke]
     runs-on: ubuntu-26.04
-    if: always() && github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && ((needs.build.result == 'success' && needs.android-smoke.result == 'success') || inputs.source_run_id != '')
+    if: always() && github.event_name == 'workflow_dispatch' && !inputs.debug_only && inputs.release_tag != '' && ((needs.build.result == 'success' && needs.android-smoke.result == 'success') || inputs.source_run_id != '')
     env:
       HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 

@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.ParcelFileDescriptor
+import android.os.Build
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -163,8 +164,15 @@ class TunBackendSmokeTest {
                         it.contains("NetworkAgentInfo") && Regex("InterfaceName: tun\\d+\\b").containsMatchIn(it)
                     }.toList()
                     assertEquals("one active VPN: $backend\n$dump", 1, vpnLinks.size)
-                    assertTrue("applied VPN MTU $mtu: $backend\n$currentNetworks",
-                        Regex("\\bMTU: $mtu\\b").containsMatchIn(vpnLinks.single()))
+                    val reportedMtu = Regex("\\bMTU: (\\d+)\\b").find(vpnLinks.single())
+                        ?.groupValues?.get(1)?.toInt() ?: error("VPN MTU missing: $currentNetworks")
+                    // Before Android 11, Vpn.makeLinkProperties omits MTU even
+                    // though jniCreate applies it. Remove this exception when
+                    // the oldest tested Android version is API 30 or newer.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R || reportedMtu != 0) {
+                        assertEquals("applied VPN MTU: $backend\n$currentNetworks", mtu, reportedMtu)
+                    }
+                    println("VPN MTU requested=$mtu backend=${backend.key} reported=$reportedMtu")
                     assertEquals("tun-smoke", probe(udp = false, bulk = true))
                     assertTransfer(udp = true)
                     stopAndAwait()
