@@ -153,8 +153,13 @@ class TunBackendSmokeTest {
                     MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key)
                     LauncherManager.startService(context, guid)
                     awaitTransfer(backend)
-                    assertTrue("actual VPN MTU $mtu: $backend",
-                        Regex("\\btun\\d+:.*\\bmtu $mtu\\b").containsMatchIn(shell("ip -o link show")))
+                    val links = shell("ip link show")
+                    val tunLinks = links.lineSequence().filter {
+                        Regex("^\\d+: tun\\d+(?:@[^:]+)?:").containsMatchIn(it)
+                    }.toList()
+                    assertEquals("one active VPN interface: $backend\n$links", 1, tunLinks.size)
+                    assertTrue("actual VPN MTU $mtu: $backend\n$links",
+                        Regex("\\bmtu $mtu\\b").containsMatchIn(tunLinks.single()))
                     assertEquals("tun-smoke", probe(udp = false, bulk = true))
                     assertTransfer(udp = true)
                     stopAndAwait()
