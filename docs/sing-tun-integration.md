@@ -30,10 +30,10 @@ Audited source:
 | --- | --- |
 | sing-box reference | `v1.15.0-alpha.13`, `824dbcfb4dd0a95921840b1737b950cde590241e` |
 | sing-tun upstream | `611d83b7a57b4719be45581eb674942ff561de6c` |
-| sing-tun integration fork | `395f9425830a9991450bd0b26b54ecd5be80e647` |
+| sing-tun integration fork | `9af120bbf52457f6c946e4d63587c2bfed57e07e` |
 | sing | `03a6cce64bf744023af9e2691fb11afd405b9061` |
 | AndroidLibXrayLite | unchanged gitlink `2ffe5f794a32ba15b122e177b5acffc6f11c4959` |
-| Xray-core integration fork | `f9a1f8e4a9cdf7dc0a939b7732f339550bc8e0cb` |
+| Xray-core integration fork | `d276f910aabb31c1303e56293ca108c17d9b9aa7` |
 | Xray upstream baseline for the native integration | `7c8dbcb4bbec7f80d16070069e0b2f7bf3aca62c` |
 
 The SagerNet libraries use GPLv3, compatible with this GPLv3 project. Their
@@ -259,3 +259,37 @@ the fixture's ordinary Vision server/freedom path, a separate optimization
 candidate. The current client integration does not need an architecture rewrite
 to explain the old unmatched plain-TCP/Vision table. See the
 [complete audit](https://github.com/Tozward/Xray-core-socks-uds/blob/e3a337d9a4e86d9b0ad761ab2571c78705155444/docs/native-sing-tun.md#production-test-audit-follow-up).
+
+## Candidate .4 follow-up
+
+Candidate `2.3.15.3-native-sing-tun.4` / versionCode768 fixes the optional native
+handoff's unsupported Unix datagram boundary. An unconnected Unix datagram has
+no remote address; both directional entry points now decline without touching
+the native stream, closing the original descriptor or consuming queued data.
+The preceding implementation reproduces a nil-address panic. Connected Unix
+datagrams continue to decline. Normal TCP and connected Unix stream behavior,
+Vision framing/readiness, write masks, statistics and backend defaults retain
+their existing paths.
+
+The dependency is `9af120bbf52457f6c946e4d63587c2bfed57e07e`; its splice read
+batch is 128KiB (ST-PERF-002). The TCP window, transmit capacity and shared-memory
+budgets retain their preceding values. A new socket regression covers reads
+above 64KiB, a smaller 32KiB capacity, backpressure/resume, EOF and slab release.
+Both Sing native directional and SOCKS-backed full handoff use the new limit;
+HEV and ordinary GoConn reads/writes are unchanged.
+
+[Batch experiment 41500278151](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41500278151)
+passes 195 samples at MTU9000 on one Linux Intel Xeon Platinum8573C runner,
+using five randomized repetitions and identical TLS workloads. Median paired
+changes from 64KiB are +9.93% plain TCP download throughput, -3.82% whole-fixture
+Vision download CPU, and +6.97% throughput for four concurrent Vision downloads.
+These are controlled Linux results, not Android battery measurements. Gains
+depend on workload: single direct-TLS download has a -2.47% paired throughput
+median, while small-request tail latency and observed scheduling gaps are mixed.
+The larger 256KiB candidate has repeatable latency tradeoffs and is not selected.
+See the [full comparison](https://github.com/Tozward/Xray-core-socks-uds/blob/d276f910aabb31c1303e56293ca108c17d9b9aa7/docs/native-sing-tun.md#follow-up-bounded-socket-read-batches).
+
+The benchmark's remaining Vision server upload copier belongs to the remote
+node. Changing the local simulated server would not improve a phone connected
+to an unchanged official Xray node, so this candidate leaves server forwarding
+unchanged.

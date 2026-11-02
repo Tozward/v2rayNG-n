@@ -73,6 +73,6 @@ require (
 
 replace github.com/2dust/AndroidLibXrayLite => ../../AndroidLibXrayLite
 
-replace github.com/xtls/xray-core => github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102153032-f9a1f8e4a9cd
+replace github.com/xtls/xray-core => github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102183952-d276f910aabb
 
-replace github.com/sagernet/sing-tun => github.com/Tozward/sing-tun v0.9.7-0.20261102152745-395f9425830a
+replace github.com/sagernet/sing-tun => github.com/Tozward/sing-tun v0.9.7-0.20261102183854-9af120bbf524
