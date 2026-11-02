@@ -113,11 +113,14 @@ class TunBackendSmokeTest {
 
                 // A stop racing asynchronous setup must not leave a tunnel or recreate one.
                 LauncherManager.startService(context, guid)
-                await("setup command delivery: $backend") { serviceDump().contains("ServiceRecord{") }
+                // A ServiceRecord can exist before onStartCommand. Wait for foreground
+                // promotion before sending the stop, so the service has received its
+                // command and registered its setup receiver. Force-stopping a pending
+                // FGS instead triggers Android's foreground-start contract exception.
+                await("foreground setup command delivery: $backend") {
+                    serviceDump().contains("isForeground=true")
+                }
                 LauncherManager.stopService(context)
-                // Before the daemon receiver registers, a stop broadcast can be unhandled.
-                // Destroy through Android as well to exercise teardown during setup.
-                context.stopService(Intent(context, CoreVpnService::class.java))
                 await("stop during setup: $backend") { !serviceDump().contains("ServiceRecord{") }
                 assertTrue(isStopped())
 
@@ -125,6 +128,8 @@ class TunBackendSmokeTest {
                 awaitTransfer(backend)
                 stopAndAwait()
             }
+            assertTrue("app processes must not crash during lifecycle transitions",
+                !shell("logcat -d -s AndroidRuntime:E").contains("Process: ${context.packageName}"))
         } finally {
             LauncherManager.stopService(context)
             context.stopService(Intent(context, CoreVpnService::class.java))
