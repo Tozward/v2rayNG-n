@@ -47,6 +47,7 @@ class ReleaseDeviceAuditTest {
         require(Regex("""com\.v2ray\.ang\.audit(?:\.r[0-9]+)?""").matches(context.packageName)) {
             "device audit must use the isolated APK"
         }
+        assumeTrue("device audit requires shell stdin support", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
         val idleSeconds = arguments.getString("idleSeconds")?.let { it.toIntOrNull() ?: error("invalid idleSeconds") } ?: 0
         require(idleSeconds in 0..300) { "idleSeconds must be within 0..300" }
         val speedArgument = arguments.getString("speedNotification") ?: "false"
@@ -295,8 +296,8 @@ class ReleaseDeviceAuditTest {
 
     private fun probeProcess(className: String, mode: String): String {
         val classpath = "${instrumentation.context.applicationInfo.sourceDir}:${context.applicationInfo.sourceDir}"
-        val command = probeBinary?.let { "'$it' $mode" }
-            ?: "env CLASSPATH='$classpath' app_process /system/bin $className $mode"
+        val command = probeBinary?.let { "${shellQuote(it)} $mode" }
+            ?: "env ${shellQuote("CLASSPATH=$classpath")} app_process /system/bin $className $mode"
         val marker = "\nAUDIT_PROBE_EXIT="
         val result = shell("{ $command; } 2>&1; code=\$?; printf '\\nAUDIT_PROBE_EXIT=%s\\n' \"\$code\"")
         val exitCode = result.substringAfterLast(marker, "").trim().toIntOrNull()
@@ -321,7 +322,19 @@ class ReleaseDeviceAuditTest {
         throw AssertionError("Timed out: $operation\n${serviceDump()}\n${serviceDump(CoreProxyOnlyService::class.java)}")
     }
 
-    private fun shell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
-        instrumentation.uiAutomation.executeShellCommand(command)
-    ).bufferedReader().use { it.readText() }
+    private fun shellQuote(value: String) = "'" + value.replace("'", "'\"'\"'") + "'"
+
+    private fun shell(command: String): String {
+        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        // UiAutomation tokenizes its command through Runtime.exec(String), so
+        // passing sh -c with quoted text would still lose argument boundaries.
+        val pipes = instrumentation.uiAutomation.executeShellCommandRw("sh")
+        return ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).bufferedReader().use { reader ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).bufferedWriter().use { writer ->
+                writer.write(command)
+                writer.newLine()
+            }
+            reader.readText()
+        }
+    }
 }
