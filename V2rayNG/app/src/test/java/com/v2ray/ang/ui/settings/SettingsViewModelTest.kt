@@ -6,13 +6,17 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -33,6 +37,23 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class SettingsViewModelTest {
+    private val models = mutableListOf<SettingsViewModel>()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun clearAndAwaitModels(dispatcher: ExecutorCoroutineDispatcher) {
+        try {
+            val jobs = models.map { checkNotNull(it.viewModelScope.coroutineContext[Job]) }
+            ViewModelStore().apply {
+                models.forEachIndexed { index, model -> put("settings-$index", model) }
+                clear()
+            }
+            // Persistence may have updated its sink while still resuming on Main.
+            runBlocking { withTimeout(5_000) { jobs.joinAll() } }
+        } finally {
+            try { Dispatchers.resetMain() } finally { dispatcher.close() }
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun retiredInitialBackendAndFailedWriteKeepTheNativeSelection() {
@@ -45,7 +66,7 @@ class SettingsViewModelTest {
                 LogUtil.refreshLogLevel()
                 val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.SING) {
                     throw IllegalStateException("write failed")
-                }
+                }.also { models.add(it) }
                 assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
                 model.setTunBackend(TunBackend.HEV)
                 runBlocking { withTimeout(5_000) { model.awaitTunBackendSave() } }
@@ -53,8 +74,7 @@ class SettingsViewModelTest {
                 assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
             }
         } finally {
-            Dispatchers.resetMain()
-            dispatcher.close()
+            clearAndAwaitModels(dispatcher)
         }
     }
 
@@ -71,7 +91,7 @@ class SettingsViewModelTest {
                 for (backend in listOf(TunBackend.SING, TunBackend.SING_NATIVE)) {
                     val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.HEV) {
                         throw IllegalStateException("write failed")
-                    }
+                    }.also { models.add(it) }
                     assertFalse(model.tunBackendSaveError.value)
                     model.setTunBackend(backend)
                     runBlocking {
@@ -81,8 +101,7 @@ class SettingsViewModelTest {
                 }
             }
         } finally {
-            Dispatchers.resetMain()
-            mainDispatcher.close()
+            clearAndAwaitModels(mainDispatcher)
         }
     }
 
@@ -94,6 +113,7 @@ class SettingsViewModelTest {
         try {
             val stored = AtomicReference(TunBackend.HEV)
             val model = SettingsViewModel(mock<Application>(), { true }, {}, stored.get()) { stored.set(it) }
+                .also { models.add(it) }
             model.setTunBackend(TunBackend.SING_NATIVE)
             ViewModelStore().apply { put("settings", model); clear() }
             runBlocking { withTimeout(5_000) { model.awaitTunBackendSave() } }
@@ -101,8 +121,7 @@ class SettingsViewModelTest {
             val reopened = SettingsViewModel(mock<Application>(), { true }, {}, stored.get()) {}
             assertEquals(TunBackend.SING_NATIVE, reopened.tunBackend.value)
         } finally {
-            Dispatchers.resetMain()
-            mainDispatcher.close()
+            clearAndAwaitModels(mainDispatcher)
         }
     }
 
@@ -119,7 +138,7 @@ class SettingsViewModelTest {
                 writeStarted.countDown()
                 finishWrite.await(5, TimeUnit.SECONDS)
                 stored.set(backend)
-            }
+            }.also { models.add(it) }
             assertEquals(TunBackend.HEV, model.tunBackend.value)
             model.setTunBackend(TunBackend.SING)
             assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
@@ -135,8 +154,7 @@ class SettingsViewModelTest {
             assertEquals(TunBackend.XRAY, reopened.tunBackend.value)
         } finally {
             finishWrite.countDown()
-            Dispatchers.resetMain()
-            mainDispatcher.close()
+            clearAndAwaitModels(mainDispatcher)
         }
     }
 
@@ -149,6 +167,7 @@ class SettingsViewModelTest {
             val stored = AtomicBoolean(true)
             val application = mock<Application>()
             val viewModel = SettingsViewModel(application, { stored.get() }, { stored.set(it) })
+                .also { models.add(it) }
             assertTrue(viewModel.autoCheckUpdate.value)
             viewModel.setAutoCheckUpdate(false)
             assertFalse(viewModel.autoCheckUpdate.value)
@@ -160,8 +179,7 @@ class SettingsViewModelTest {
             assertFalse(SettingsViewModel(application, { stored.get() }, { stored.set(it) })
                 .autoCheckUpdate.value)
         } finally {
-            Dispatchers.resetMain()
-            mainDispatcher.close()
+            clearAndAwaitModels(mainDispatcher)
         }
     }
 
@@ -180,7 +198,7 @@ class SettingsViewModelTest {
                     finishFirstWrite.await(5, TimeUnit.SECONDS)
                 }
                 writes.add(enabled)
-            })
+            }).also { models.add(it) }
             val store = ViewModelStore().apply { put("settings", model) }
 
             model.setAutoCheckUpdate(false)
@@ -197,8 +215,7 @@ class SettingsViewModelTest {
             assertEquals(listOf(false, true), writes)
         } finally {
             finishFirstWrite.countDown()
-            Dispatchers.resetMain()
-            mainDispatcher.close()
+            clearAndAwaitModels(mainDispatcher)
         }
     }
 

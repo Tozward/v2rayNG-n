@@ -3,14 +3,17 @@ package com.v2ray.ang.ui.checkupdate
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.R
 import com.v2ray.ang.dto.CheckUpdateResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -36,14 +39,24 @@ import java.util.concurrent.TimeUnit
 @OptIn(ExperimentalCoroutinesApi::class)
 class CheckUpdateViewModelTest {
     private val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val models = mutableListOf<CheckUpdateViewModel>()
 
     @BeforeEach fun setUp() {
         Dispatchers.setMain(mainDispatcher)
     }
 
     @AfterEach fun tearDown() {
-        Dispatchers.resetMain()
-        mainDispatcher.close()
+        try {
+            val jobs = models.map { checkNotNull(it.viewModelScope.coroutineContext[Job]) }
+            ViewModelStore().apply {
+                models.forEachIndexed { index, model -> put("update-$index", model) }
+                clear()
+            }
+            // A storage callback can finish before its IO continuation returns to Main.
+            runBlocking { withTimeout(5_000) { jobs.joinAll() } }
+        } finally {
+            try { Dispatchers.resetMain() } finally { mainDispatcher.close() }
+        }
     }
 
     @Test fun checkThenDownloadPublishesProgressAndInstallFile() = runBlocking(mainDispatcher) {
@@ -62,7 +75,7 @@ class CheckUpdateViewModelTest {
             val model = CheckUpdateViewModel(app, { result }, { _, _, onProgress ->
                 onProgress(65)
                 apk
-            })
+            }).also { models.add(it) }
             assertNull(model.updateResult.value)
             assertFalse(model.showUpdateDialog.value)
             assertNull(model.pendingApk.value)
@@ -84,7 +97,7 @@ class CheckUpdateViewModelTest {
             val app = mock<Application>()
             val latest = CheckUpdateViewModel(
                 app, { CheckUpdateResult(hasUpdate = false) }, { _, _, _ -> error("unused") }
-            )
+            ).also { models.add(it) }
             latest.checkForUpdates()
             assertEquals(R.string.update_already_latest_version, withTimeout(5_000) {
                 latest.statusMessage.first { it != null }
@@ -94,7 +107,7 @@ class CheckUpdateViewModelTest {
             mockStatic(Log::class.java).use {
                 val failing = CheckUpdateViewModel(
                     app, { throw IOException("offline") }, { _, _, _ -> error("unused") }
-                )
+                ).also { models.add(it) }
                 failing.checkForUpdates()
                 assertEquals(R.string.update_check_failed, withTimeout(5_000) {
                     failing.statusMessage.first { it != null }
@@ -114,7 +127,7 @@ class CheckUpdateViewModelTest {
                 onProgress(12)
                 gate.await()
                 File("unused.apk")
-            })
+            }).also { models.add(it) }
 
             model.offerUpdate(release)
             assertEquals(12, withTimeout(5_000) { model.downloadProgress.first { it == 12 } })
@@ -145,7 +158,7 @@ class CheckUpdateViewModelTest {
                         }
                         writes.add(enabled)
                     }
-                )
+                ).also { models.add(it) }
                 val store = ViewModelStore().apply { put("update", model) }
 
                 model.toggleCheckPreRelease(true)

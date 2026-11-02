@@ -4,16 +4,20 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.dto.AppInfo
 import com.v2ray.ang.handler.SettingsChangeManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -32,6 +36,7 @@ import java.util.concurrent.Executors
 @OptIn(ExperimentalCoroutinesApi::class)
 class PerAppProxyViewModelTest {
     private val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val models = mutableListOf<PerAppProxyViewModel>()
 
     @BeforeEach
     fun setUp() {
@@ -40,8 +45,17 @@ class PerAppProxyViewModelTest {
 
     @AfterEach
     fun tearDown() {
-        Dispatchers.resetMain()
-        mainDispatcher.close()
+        try {
+            val jobs = models.map { checkNotNull(it.viewModelScope.coroutineContext[Job]) }
+            ViewModelStore().apply {
+                models.forEachIndexed { index, model -> put("per-app-$index", model) }
+                clear()
+            }
+            // Eager stateIn collectors must stop before replacing their Main dispatcher.
+            runBlocking { withTimeout(5_000) { jobs.joinAll() } }
+        } finally {
+            try { Dispatchers.resetMain() } finally { mainDispatcher.close() }
+        }
     }
 
     @Test
@@ -50,6 +64,7 @@ class PerAppProxyViewModelTest {
             val pendingApps = CompletableDeferred<List<AppInfo>>()
             val savedState = SavedStateHandle()
             val model = PerAppProxyViewModel(mock<Application>(), savedState) { pendingApps.await() }
+                .also { models.add(it) }
             val context = appContext()
             val emissions = mutableListOf<List<AppInfo>>()
             val observer = launch { model.displayedApps.collect { emissions.add(it) } }
@@ -93,6 +108,7 @@ class PerAppProxyViewModelTest {
         withSettingsStorage {
             val savedState = SavedStateHandle(mapOf("per_app_search_query" to "target"))
             val model = PerAppProxyViewModel(mock<Application>(), savedState) { sampleApps() }
+                .also { models.add(it) }
 
             assertEquals("target", model.searchQuery.value)
             model.loadApps(appContext())
@@ -109,6 +125,7 @@ class PerAppProxyViewModelTest {
     fun bulkActionsUseTheCurrentQueryBeforeAsyncFilteringPublishes() = runBlocking(mainDispatcher) {
         withSettingsStorage {
             val model = PerAppProxyViewModel(mock<Application>(), SavedStateHandle()) { sampleApps() }
+                .also { models.add(it) }
             model.loadApps(appContext())
             withTimeout(5_000) { model.displayedApps.first { it.size == 2 } }
 
@@ -137,7 +154,7 @@ class PerAppProxyViewModelTest {
                         throw IllegalStateException("package scan failed")
                     }
                     sampleApps()
-                }
+                }.also { models.add(it) }
                 val context = appContext()
 
                 model.loadApps(context)
