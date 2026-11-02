@@ -8,6 +8,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Network
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
@@ -35,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -42,6 +46,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 @SuppressLint("VpnServicePolicy")
 class CoreVpnService : VpnService(), ServiceControl {
@@ -431,6 +437,31 @@ class CoreVpnService : VpnService(), ServiceControl {
             tun2SocksService = null
             val vpnInterface = mInterface
             mInterface = null
+            // Android 7 (API 24-25) can associate a reused tun0 with the old VPN
+            // network until onLost. Observe before closing any native fd, then
+            // await release off main. Remove when minSdk >= 26 or the rapid
+            // stop/start emulator regression passes without this compatibility path.
+            val legacyConnectivity = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1 && vpnInterface != null)
+                getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager else null
+            val legacyLost = legacyConnectivity?.let { CompletableDeferred<Unit>() }
+            val legacyCallback = legacyLost?.let { completion ->
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onLost(network: Network) { completion.complete(Unit) }
+                }
+            }
+            var legacyCallbackRegistered = false
+            if (legacyConnectivity != null && legacyCallback != null) {
+                try {
+                    legacyConnectivity.registerNetworkCallback(
+                        NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(),
+                        legacyCallback
+                    )
+                    legacyCallbackRegistered = true
+                } catch (error: Exception) {
+                    LogUtil.w(AppConfig.TAG, "StopCore-VPN: Cannot observe Android 7 network release", error)
+                }
+            }
             try {
                 try {
                     tunnel?.stopTun2Socks()
@@ -461,6 +492,20 @@ class CoreVpnService : VpnService(), ServiceControl {
                     LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed")
                 } catch (e: Exception) {
                     LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface", e)
+                } finally {
+                    if (legacyCallbackRegistered && legacyConnectivity != null && legacyCallback != null) {
+                        try {
+                            withTimeout(1500L) { legacyLost?.await() }
+                        } catch (error: TimeoutCancellationException) {
+                            LogUtil.w(AppConfig.TAG, "StopCore-VPN: Android 7 network release timed out", error)
+                        } finally {
+                            try {
+                                legacyConnectivity.unregisterNetworkCallback(legacyCallback)
+                            } catch (error: Exception) {
+                                LogUtil.w(AppConfig.TAG, "StopCore-VPN: Cannot unregister Android 7 network observer", error)
+                            }
+                        }
+                    }
                 }
             }
         }

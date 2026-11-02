@@ -34,6 +34,7 @@ class TunBackendSmokeTest {
     @Test
     fun allBackendsTransferAndRecoverFromLifecycleTransitions() {
         MmkvManager.encodeSettings(AppConfig.PREF_MODE, AppConfig.VPN)
+        MmkvManager.encodeSettings(AppConfig.PREF_LOGLEVEL, "info")
         MmkvManager.encodeSettings(AppConfig.PREF_ROOT_MODE_ENABLE, false)
         MmkvManager.encodeSettings(AppConfig.PREF_ROOT_LAN_SHARING, false)
         MmkvManager.encodeSettings(AppConfig.PREF_PER_APP_PROXY, false)
