@@ -267,7 +267,7 @@ handoff's unsupported Unix datagram boundary. An unconnected Unix datagram has
 no remote address; both directional entry points now decline without touching
 the native stream, closing the original descriptor or consuming queued data.
 The preceding implementation reproduces a nil-address panic. Connected Unix
-datagrams continue to decline. Normal TCP and connected Unix stream behavior,
+datagrams continue to decline. Normal TCP and connected Unix stream eligibility,
 Vision framing/readiness, write masks, statistics and backend defaults retain
 their existing paths.
 
@@ -293,3 +293,24 @@ The benchmark's remaining Vision server upload copier belongs to the remote
 node. Changing the local simulated server would not improve a phone connected
 to an unchanged official Xray node, so this candidate leaves server forwarding
 unchanged.
+
+### Candidate .4 validation
+
+[Android build 41502856334](https://github.com/Tozward/v2rayNG-n/actions/runs/41502856334)
+passes at source `7f5ea105a4cadb51ff56871bcf27ed052c8a7b18`: adapter races/vet,
+FD repeats, all four native ABIs, both distributions' unit tests, Kotlin compilation,
+assembly/lint and signed release packages. Android API24 and API35 VPN TCP/UDP
+checks pass at MTU1280/1500/9000. No physical phone was operated. The Playstore
+arm64 APK is 32934142 bytes, 612 bytes larger than .3, with SHA256
+`029fc296c05ed591e0e84ac3b7edfc5ba4b8c205d88cd18d55ac4d1864afd5c8`.
+
+[Core 41502724582](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41502724582)
+and [dependency 41502596650](https://github.com/Tozward/sing-tun/actions/runs/41502596650)
+pass their Linux and Windows jobs, including the dependency's privileged kernel
+memory-link cases and the core's real-TUN/Vision repeats and 60-row matrix.
+Local macOS arm64 focused core/dependency race checks pass with the final pins.
+**Not run:** cloud macOS jobs did not acquire hosted runners (GitHub arm64 capacity
+constraints); local real-utun memory-link cases lack permission and are covered
+by the passing Linux privileged job instead. These cloud workflow totals are not
+successful macOS runtime validation. Android throughput and energy measurements
+remain for physical-device testing.
