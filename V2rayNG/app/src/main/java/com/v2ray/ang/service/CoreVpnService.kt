@@ -3,7 +3,9 @@ package com.v2ray.ang.service
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Network
 import android.net.ProxyInfo
@@ -59,10 +61,21 @@ class CoreVpnService : VpnService(), ServiceControl {
     private var teardownJob: Job? = null
     private val teardownComplete = Job()
     private var previousTeardown: Job? = null
+    // This receiver belongs to the service, including asynchronous setup before
+    // the core registers its full command receiver. Repeated stops share one gate.
+    private val earlyStopReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.getIntExtra("key", -1) == AppConfig.MSG_STATE_STOP) stopAllService()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         previousTeardown = teardownBarrier.register(teardownComplete)
+        ContextCompat.registerReceiver(
+            this, earlyStopReceiver, IntentFilter(AppConfig.BROADCAST_ACTION_SERVICE),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service created")
         val policy = StrictMode.ThreadPolicy.Builder().permitAll().build()
         StrictMode.setThreadPolicy(policy)
@@ -406,6 +419,11 @@ class CoreVpnService : VpnService(), ServiceControl {
         val job = teardownScope.launch(start = CoroutineStart.LAZY) {
             setupJob?.cancelAndJoin()
             setupScope.cancel()
+            try {
+                unregisterReceiver(earlyStopReceiver)
+            } catch (error: Exception) {
+                LogUtil.w(AppConfig.TAG, "StopCore-VPN: Failed to unregister setup stop receiver", error)
+            }
             previousTeardown?.join()
             previousTeardown = null
             isRunning = false
