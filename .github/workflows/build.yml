@@ -235,7 +235,6 @@ jobs:
             adb install $(find emulator-tests -name '*x86_64.apk')
             adb install $(find emulator-tests -name '*androidTest.apk')
             adb shell appops set com.v2ray.ang ACTIVATE_VPN allow
-            adb push tools/ci/tun-probe.sh /data/local/tmp/tun-probe.sh
             adb shell pm grant com.v2ray.ang android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n com.v2ray.ang/.ui.main.MainActivity
             adb logcat -c

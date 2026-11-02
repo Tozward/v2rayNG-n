@@ -53,7 +53,7 @@ class TunBackendSmokeTest {
         MmkvManager.encodeRoutingRulesets(mutableListOf(RulesetItem(
             id = "ci-tun-smoke", outboundTag = AppConfig.TAG_PROXY, network = "tcp,udp"
         )))
-        assertTrue("probe must fail without a VPN", shell("sh /data/local/tmp/tun-probe.sh -w 1 198.18.0.9 443").isEmpty())
+        assertTrue("probe must fail without a VPN", probe(udp = false).isEmpty())
         val guid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.SOCKS).apply {
             remarks = "CI loopback fixture"
             server = "10.0.2.2"
@@ -143,12 +143,17 @@ class TunBackendSmokeTest {
     }
 
     private fun awaitTransfer(backend: TunBackend) = await("TCP transfer: $backend") {
-        shell("sh /data/local/tmp/tun-probe.sh -w 1 198.18.0.9 443").trim() == "tun-smoke"
+        probe(udp = false) == "tun-smoke"
     }
 
     private fun assertTransfer(udp: Boolean) {
-        val flag = if (udp) "-u" else ""
-        assertEquals("tun-smoke", shell("sh /data/local/tmp/tun-probe.sh $flag -w 2 198.18.0.9 12345").trim())
+        assertEquals("tun-smoke", probe(udp))
+    }
+
+    private fun probe(udp: Boolean): String {
+        val classpath = "${instrumentation.context.applicationInfo.sourceDir}:${context.applicationInfo.sourceDir}"
+        val protocol = if (udp) "udp" else "tcp"
+        return shell("env CLASSPATH=$classpath app_process /system/bin ${TunProbe::class.java.name} $protocol").trim()
     }
 
     private fun serviceDump() = shell("dumpsys activity services com.v2ray.ang/.service.CoreVpnService")
