@@ -22,6 +22,7 @@ concurrency, application-list filtering and testpre persistence/import/export.
 | Running proxy query returned settings instead of the launched listener | Cache a compatible IPv4-loopback HTTP/mixed listener from the successfully launched configuration, invalidate on stop/failure/reload, and acknowledge unavailable/setup states as Unknown. Never silently treat a live daemon as stopped and go direct. | `CoreLocalProxyConfigTest`, device VPN/proxy scenarios |
 | Local proxy authentication could be sent in an HTTPS origin request | Metadata uses the secure update client, original requests carry no proxy credentials, and proxy authentication is confined to its exchange. Reject HTTPS-origin 407 requests for proxy credentials after CONNECT. | `UpdateProxyAuthenticationTest`, `HttpUtilProxyAuthenticationTest` |
 | Fixed ready APK path could be replaced by a later download | Verified files retain a unique suffix; a returned FileProvider URI is not retargeted to another verified package. Size/digest verification and pending-attempt cleanup remain mandatory. | `UpdateCheckerManagerTest.aLaterVerifiedDownloadCannotReplaceAnEarlierPendingInstall` |
+| Unique ready APKs could accumulate after successful updates | Only this package's replacement broadcast starts one finite IO cleanup. Parse ready archives and remove this package's installed/older semantic versions; preserve future/unknown packages, pending downloads and unrelated cache files. | `UpdateCacheCleanupTest` |
 | Retired GUI key could become an invalid selection | Offer Xray/HEV/Sing native only; decode preceding `sing` values as `sing_native`, normalize ViewModel input and rollback, preserve other legacy defaults. | `TunBackendTest`, `SettingsViewModelTest`, UI/device tests |
 
 Disabling all compatible local listeners deliberately makes in-app proxied
@@ -43,6 +44,7 @@ merely because its serialized alias is retained.
 | `CoreConfigManager.runningHttpProxyPort` | Interpret the launched HTTP/mixed schema, address/auth and raw transport, including Go's case rules. Recheck this parser if upstream changes HTTP-in-SOCKS support, account fields, listener types or transport framing. |
 | `HttpUtil` | Two inherited redundant origin `Proxy-Authorization` additions were removed because the existing proxyAuthenticator already supplies proxy authentication. The authentication callback now rejects tunneled origin challenges; custom-header debug logs record names, not secret values. No subscription/header/redirect architecture was replaced. |
 | `UpdateCheckerManager` | One cancellation/response lifetime owns each request. Proxy credentials remain lazy and secret, verified APK paths immutable, and route decisions come from daemon acknowledgement. |
+| `BootReceiver` | On `MY_PACKAGE_REPLACED` only, own one `goAsync` cleanup and finish its pending result in `finally`. Leave the inherited boot/locked-boot/autostart decision path unchanged. Cache maintenance must not depend on autostart being enabled. |
 | Settings | Keep old persisted keys readable. The `sing` alias is a retirement migration, not a new default for HEV/Xray. All enabled locales use the final native label. |
 | Native build | One combined Go AAR/runtime, immutable core/dependency pins, all declared ABIs, original HEV source revision and complete native notices. |
 
@@ -51,6 +53,23 @@ correctness and confidentiality. Prefer an equivalent upstream correction when
 available; retain the regression rather than mechanically carrying duplicate
 implementations. The dependency's ST-FD/ST-API/ST-PERF ledger remains authoritative
 for its separate resource, ownership, vector and jumbo patches.
+
+Update-cache cleanup recognizes only `cache/updates/update-*.apk` and the preceding
+`update.apk`. It compares parsed `versionName` with the running installed build,
+using the same semantic ordering as update discovery. ABI/distribution offsets
+make `versionCode` unsuitable for this purpose. Unknown versions/packages and
+future install candidates remain intact. A five-second work budget is checked
+between archive parses; no recurring task, startup scan or installation-URI
+handoff cleanup is added. Android may evict cache files under storage pressure,
+but [its storage guidance](https://developer.android.com/training/data-storage/app-specific#internal-remove-cache)
+requires applications to maintain their own cache rather than rely on eviction.
+
+The suspected universal-to-ARM64 downgrade was checked against the current
+Gradle mapping. Play Store ABI/universal outputs all use `4,000,000 + base`;
+F-Droid uses its separate package and `5,000,000 + 100 * base + ABI offset`, where
+offsets range from 0 to 4. A newer base therefore remains installable across ABI
+choices. Keep the existing exact ABI/distribution asset selection; do not add
+universal-package detection for this disproved version-code issue.
 
 The core's custom SOCKS-UDS protocol also receives negotiation, cancellation,
 buffer/EOF and frame-boundary corrections. The dependency removes superseded

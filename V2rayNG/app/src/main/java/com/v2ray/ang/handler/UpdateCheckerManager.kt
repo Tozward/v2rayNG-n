@@ -1,11 +1,15 @@
 package com.v2ray.ang.handler
 
+import android.content.Context
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.os.Build
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
 import com.v2ray.ang.util.JsonUtil
+import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -158,6 +162,49 @@ object UpdateCheckerManager {
             match.groupValues[4].split('.').filter { it.isNotEmpty() }.map { it.toIntOrNull() ?: return null }
         val suffix = match.groupValues[5].takeIf { it.isNotEmpty() }
         return Version(numbers, suffix?.split('.'))
+    }
+
+    /** Called once after this package is replaced, never while handing a URI to the installer. */
+    suspend fun cleanupInstalledApks(context: Context) = withContext(Dispatchers.IO) {
+        // Bound archive parsing to part of goAsync's broadcast execution window.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        cleanupInstalledApks(context.cacheDir, context.packageName, BuildConfig.VERSION_NAME,
+            readArchive = { file ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.getPackageArchiveInfo(file.path, PackageManager.PackageInfoFlags.of(0))
+                } else {
+                    legacyArchiveInfo(context.packageManager, file)
+                }
+            },
+            hasTime = { System.nanoTime() < deadline })
+    }
+
+    // API 24–32 have no PackageInfoFlags overload; remove when minSdk reaches 33.
+    @Suppress("DEPRECATION")
+    private fun legacyArchiveInfo(packageManager: PackageManager, file: File): PackageInfo? =
+        packageManager.getPackageArchiveInfo(file.path, 0)
+
+    internal fun cleanupInstalledApks(
+        cacheDir: File,
+        packageName: String,
+        installedVersion: String,
+        readArchive: (File) -> PackageInfo?,
+        hasTime: () -> Boolean = { true }
+    ) {
+        val current = parseVersion(installedVersion) ?: return
+        for (file in File(cacheDir, "updates").listFiles().orEmpty()) {
+            if (!hasTime()) return
+            if (!file.isFile || !(file.name == "update.apk" ||
+                        (file.name.startsWith("update-") && file.name.endsWith(".apk")))) continue
+            val archive = readArchive(file) ?: continue
+            if (archive.packageName != packageName) continue
+            val version = archive.versionName?.let(::parseVersion) ?: continue
+            // ABI/distribution offsets make versionCode unsuitable for release ordering.
+            // Keep future/unknown archives and all pending downloads intact.
+            if (version <= current && !file.delete()) {
+                LogUtil.w(AppConfig.TAG, "Update cache: could not remove installed archive ${file.name}")
+            }
+        }
     }
 
     suspend fun downloadApk(

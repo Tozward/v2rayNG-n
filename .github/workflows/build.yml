@@ -116,6 +116,36 @@ jobs:
         path: V2rayNG/app/libs/libv2ray.aar
         key: ${{ steps.cache-integrated-core.outputs.cache-primary-key }}
 
+    - name: Preserve native inputs for the isolated device audit
+      if: inputs.device_audit
+      uses: actions/upload-artifact@v7
+      with:
+        name: native-audit-inputs
+        path: |
+          V2rayNG/app/libs/libv2ray.aar
+          V2rayNG/app/libs/**/*.so
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Build an Android HEV descriptor runner for matched core measurements
+      if: inputs.device_audit
+      run: |
+        mkdir -p phone-fixtures
+        "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+          -O3 -Ihev-socks5-tunnel/include tools/ci/phone_hev_runner.c \
+          -LV2rayNG/app/libs/arm64-v8a -lhev-socks5-tunnel \
+          -o phone-fixtures/hev-runner
+        cp V2rayNG/app/libs/arm64-v8a/libhev-socks5-tunnel.so phone-fixtures/
+
+    - name: Preserve matched Android HEV runner
+      if: inputs.device_audit
+      uses: actions/upload-artifact@v7
+      with:
+        name: phone-hev-fixture
+        path: phone-fixtures
+        if-no-files-found: error
+        retention-days: 7
+
     - name: Setup Java
       uses: actions/setup-java@v6.1.0
       with:
@@ -129,30 +159,52 @@ jobs:
         fileName: "android_keystore.jks"
         encodedString: ${{ secrets.APP_KEYSTORE_BASE64 }}
 
-    - name: Build APK
+    - name: Prepare Gradle and license report
+      working-directory: V2rayNG
+      run: |
+        echo "sdk.dir=${ANDROID_HOME}" > local.properties
+        chmod 755 gradlew
+        ./gradlew licenseFdroidReleaseReport
+
+    - name: Focused application regressions
+      working-directory: V2rayNG
+      timeout-minutes: 15
+      run: |
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest --tests com.v2ray.ang.core.CoreLocalProxyConfigTest --tests com.v2ray.ang.handler.UpdateProxyAuthenticationTest --tests com.v2ray.ang.util.HttpUtilProxyAuthenticationTest --tests com.v2ray.ang.handler.UpdateCacheCleanupTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
+
+    - name: Full unit tests and debug builds for both distributions
+      working-directory: V2rayNG
+      timeout-minutes: 20
+      run: |
+        ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
+        ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
+
+    - name: Compile Android instrumentation
+      working-directory: V2rayNG
+      timeout-minutes: 15
+      run: ./gradlew :app:assemblePlaystoreDebugAndroidTest
+
+    - name: Lint both distributions
+      working-directory: V2rayNG
+      timeout-minutes: 15
+      run: ./gradlew :app:lintPlaystoreDebug :app:lintFdroidDebug
+
+    - name: Build signed release APKs
+      if: ${{ !inputs.debug_only }}
+      working-directory: V2rayNG
+      timeout-minutes: 20
       env:
         ANDROID_KEYSTORE_FILE: ${{ steps.android_keystore.outputs.filePath }}
         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
         ANDROID_KEY_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
         ANDROID_KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
       run: |
-        cd ${{ github.workspace }}/V2rayNG
-        echo "sdk.dir=${ANDROID_HOME}" > local.properties
-        chmod 755 gradlew
-        ./gradlew licenseFdroidReleaseReport
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest --tests com.v2ray.ang.core.CoreLocalProxyConfigTest --tests com.v2ray.ang.handler.UpdateProxyAuthenticationTest --tests com.v2ray.ang.util.HttpUtilProxyAuthenticationTest
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
-        ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
-        ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
-        ./gradlew :app:assemblePlaystoreDebugAndroidTest
-        ./gradlew :app:lintPlaystoreDebug :app:lintFdroidDebug
-        if [ "${{ inputs.debug_only }}" != true ]; then
-          ./gradlew assembleRelease \
-            "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
-            "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
-            "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
-            "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
-        fi
+        ./gradlew assembleRelease \
+          "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
+          "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
+          "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS" \
+          "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
 
     - name: Preserve JVM and lint reports
       if: always()
@@ -200,36 +252,6 @@ jobs:
         path: |
           V2rayNG/app/build/outputs/apk/playstore/debug/*x86_64*.apk
           V2rayNG/app/build/outputs/apk/androidTest/playstore/debug/*.apk
-
-    - name: Preserve native inputs for the isolated device audit
-      if: inputs.device_audit
-      uses: actions/upload-artifact@v7
-      with:
-        name: native-audit-inputs
-        path: |
-          V2rayNG/app/libs/libv2ray.aar
-          V2rayNG/app/libs/**/*.so
-        if-no-files-found: error
-        retention-days: 7
-
-    - name: Build an Android HEV descriptor runner for matched core measurements
-      if: inputs.device_audit
-      run: |
-        mkdir -p phone-fixtures
-        "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
-          -O3 -Ihev-socks5-tunnel/include tools/ci/phone_hev_runner.c \
-          -LV2rayNG/app/libs/arm64-v8a -lhev-socks5-tunnel \
-          -o phone-fixtures/hev-runner
-        cp V2rayNG/app/libs/arm64-v8a/libhev-socks5-tunnel.so phone-fixtures/
-
-    - name: Preserve matched Android HEV runner
-      if: inputs.device_audit
-      uses: actions/upload-artifact@v7
-      with:
-        name: phone-hev-fixture
-        path: phone-fixtures
-        if-no-files-found: error
-        retention-days: 7
 
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7

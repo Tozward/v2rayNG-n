@@ -8,7 +8,12 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.core.LauncherManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SubscriptionUpdater
+import com.v2ray.ang.handler.UpdateCheckerManager
 import com.v2ray.ang.util.LogUtil
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
     /**
@@ -42,6 +47,23 @@ class BootReceiver : BroadcastReceiver() {
             else -> {
                 LogUtil.w(AppConfig.TAG, "BootReceiver: Unhandled action: $action")
                 return
+            }
+        }
+
+        if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            val pending = goAsync()
+            // This finite scope is owned by the pending broadcast, not app/service lifetime.
+            val cleanupScope = CoroutineScope(Dispatchers.IO)
+            cleanupScope.launch {
+                try {
+                    UpdateCheckerManager.cleanupInstalledApks(context)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    LogUtil.e(AppConfig.TAG, "Update cache cleanup after package replacement failed", error)
+                } finally {
+                    pending.finish()
+                }
             }
         }
 
