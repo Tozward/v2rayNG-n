@@ -146,20 +146,25 @@ class TunBackendSmokeTest {
             }
 
             // Exercise the same stored GUI value through VpnService and both
-            // Sing entry paths. Inspect the kernel interface, not just JSON.
+            // Sing entry paths. Inspect Android's active VPN LinkProperties.
             for (mtu in listOf(1280, 1500, 9000)) {
                 MmkvManager.encodeSettings(AppConfig.PREF_VPN_MTU, mtu.toString())
                 for (backend in listOf(TunBackend.SING, TunBackend.SING_NATIVE)) {
                     MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key)
                     LauncherManager.startService(context, guid)
                     awaitTransfer(backend)
-                    val links = shell("ip link show")
-                    val tunLinks = links.lineSequence().filter {
-                        Regex("^\\d+: tun\\d+(?:@[^:]+)?:").containsMatchIn(it)
+                    // UiAutomation's shell domain cannot use RTM_GETLINK on
+                    // these emulator images. ConnectivityService exposes the
+                    // active VPN's applied MTU without that netlink permission.
+                    val dump = shell("dumpsys connectivity")
+                    val currentNetworks = dump.substringAfter("Current Networks:", "")
+                        .substringBefore("Network Requests:")
+                    val vpnLinks = currentNetworks.lineSequence().filter {
+                        it.contains("NetworkAgentInfo") && Regex("InterfaceName: tun\\d+\\b").containsMatchIn(it)
                     }.toList()
-                    assertEquals("one active VPN interface: $backend\n$links", 1, tunLinks.size)
-                    assertTrue("actual VPN MTU $mtu: $backend\n$links",
-                        Regex("\\bmtu $mtu\\b").containsMatchIn(tunLinks.single()))
+                    assertEquals("one active VPN: $backend\n$dump", 1, vpnLinks.size)
+                    assertTrue("applied VPN MTU $mtu: $backend\n$currentNetworks",
+                        Regex("\\bMTU: $mtu\\b").containsMatchIn(vpnLinks.single()))
                     assertEquals("tun-smoke", probe(udp = false, bulk = true))
                     assertTransfer(udp = true)
                     stopAndAwait()
