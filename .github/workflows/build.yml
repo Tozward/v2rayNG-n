@@ -134,6 +134,7 @@ jobs:
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
         ./gradlew :app:assemblePlaystoreDebugAndroidTest
+        ./gradlew :app:lintPlaystoreDebug :app:lintFdroidDebug
         ./gradlew assembleRelease \
           "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
           "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
