@@ -125,6 +125,7 @@ jobs:
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
+        ./gradlew :app:assemblePlaystoreDebugAndroidTest
         ./gradlew assembleRelease \
           "-Pandroid.injected.signing.store.file=$ANDROID_KEYSTORE_FILE" \
           "-Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD" \
@@ -154,6 +155,14 @@ jobs:
             print(f'Verified native libraries: {apk.name}')
         PY
     
+    - name: Upload emulator test APKs
+      uses: actions/upload-artifact@v7
+      with:
+        name: emulator-tests
+        path: |
+          V2rayNG/app/build/outputs/apk/playstore/debug/*x86_64*.apk
+          V2rayNG/app/build/outputs/apk/androidTest/playstore/debug/*.apk
+
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -182,10 +191,57 @@ jobs:
         name: universal-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*universal*.apk
 
-  sign-and-release:
+  android-smoke:
     needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 35]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: emulator-tests
+          path: emulator-tests
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start echo fixture
+        run: python3 tools/ci/socks_echo.py > "$RUNNER_TEMP/socks-echo.log" 2>&1 &
+      - name: Test Android VPN backends
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: |
+            adb install $(find emulator-tests -name '*x86_64.apk')
+            adb install $(find emulator-tests -name '*androidTest.apk')
+            adb shell appops set com.v2ray.ang ACTIVATE_VPN allow
+            adb shell pm grant com.v2ray.ang android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -n com.v2ray.ang/.ui.main.MainActivity
+            adb logcat -c
+            adb shell am instrument -w -e class com.v2ray.ang.service.TunBackendSmokeTest com.v2ray.ang.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/instrumentation.txt"
+            adb logcat -d > "$RUNNER_TEMP/logcat.txt"
+            grep -q 'OK (1 test)' "$RUNNER_TEMP/instrumentation.txt"
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-smoke-${{ matrix.api }}
+          path: |
+            ${{ runner.temp }}/instrumentation.txt
+            ${{ runner.temp }}/logcat.txt
+            ${{ runner.temp }}/socks-echo.log
+
+  sign-and-release:
+    needs: [build, android-smoke]
     runs-on: ubuntu-26.04
-    if: always() && github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && (needs.build.result == 'success' || inputs.source_run_id != '')
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && ((needs.build.result == 'success' && needs.android-smoke.result == 'success') || inputs.source_run_id != '')
     env:
       HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
@@ -219,7 +275,7 @@ jobs:
       - name: Prepare APK files
         run: |
           mkdir -p release-files
-          find release -type f -name '*.apk' -exec cp {} release-files/ \;
+          find release -type f -name '*.apk' ! -path 'release/emulator-tests/*' -exec cp {} release-files/ \;
           test -n "$(find release-files -maxdepth 1 -name '*.apk' -print -quit)"
 
       - name: Sign APK files with GPG when configured

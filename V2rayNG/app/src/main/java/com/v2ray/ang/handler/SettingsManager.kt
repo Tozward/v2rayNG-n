@@ -407,10 +407,7 @@ object SettingsManager {
         return Utils.parseInt(MmkvManager.decodeSettingsString(AppConfig.PREF_VPN_MTU), AppConfig.VPN_MTU)
     }
 
-    /**
-     * Check if HEV TUN is being used.
-     * @return True if HEV TUN is used, false otherwise.
-     */
+    /** Explicit backend choice takes precedence; older installs retain their HEV/Xray preference. */
     fun getTunBackend(): TunBackend = TunBackend.fromSettings(
         MmkvManager.decodeSettingsString(AppConfig.PREF_TUN_BACKEND),
         MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, true)

@@ -2,6 +2,7 @@ package singtun
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -81,6 +82,11 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	if _, err := conn.Read(make([]byte, 1)); err == nil {
 		t.Fatal("stale flow survived reset")
+	} else {
+		var networkError net.Error
+		if errors.As(err, &networkError) && networkError.Timeout() {
+			t.Fatalf("reset did not close stale TCP flow: %v", err)
+		}
 	}
 	_ = conn.Close()
 	_ = transfer().Close()
