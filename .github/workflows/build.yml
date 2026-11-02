@@ -154,6 +154,18 @@ jobs:
             "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
         fi
 
+    - name: Preserve JVM and lint reports
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: app-test-reports
+        path: |
+          V2rayNG/app/build/test-results/
+          V2rayNG/app/build/reports/tests/
+          V2rayNG/app/build/reports/lint-results-*
+        if-no-files-found: ignore
+        retention-days: 7
+
     - name: Verify native libraries in APKs
       env:
         APK_BUILD_TYPE: ${{ inputs.debug_only && 'debug' || 'release' }}

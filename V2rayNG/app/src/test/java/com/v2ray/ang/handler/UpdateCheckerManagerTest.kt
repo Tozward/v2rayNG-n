@@ -199,7 +199,7 @@ class UpdateCheckerManagerTest {
     }
 
     @Test
-    fun aLaterVerifiedDownloadCannotReplaceAnEarlierPendingInstall() = runBlocking {
+    fun aLaterVerifiedDownloadCannotReplaceAnEarlierPendingInstall(): Unit = runBlocking {
         val payloads = listOf("first verified release".toByteArray(), "second verified release".toByteArray())
         val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
         server.soTimeout = 5_000
