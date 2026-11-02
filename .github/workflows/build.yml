@@ -410,19 +410,23 @@ jobs:
         working-directory: V2rayNG
         run: |
           python3 - <<'PY'
+          import os
           from pathlib import Path
           path = Path('app/build.gradle.kts')
           source = path.read_text()
           needle = 'applicationId = "com.v2ray.ang"'
           assert source.count(needle) == 1, 'Unexpected applicationId declaration'
-          path.write_text(source.replace(needle, 'applicationId = "com.v2ray.ang.audit"'))
+          # Debug signing keys can differ between hosted runners. A reserved,
+          # run-specific ID avoids uninstalling an earlier audit's scratch data.
+          audit_id = 'com.v2ray.ang.audit.r' + str(int(os.environ['GITHUB_RUN_ID']))
+          path.write_text(source.replace(needle, 'applicationId = "' + audit_id + '"'))
           PY
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           chmod 755 gradlew
           ./gradlew :app:assemblePlaystoreDebug :app:assemblePlaystoreDebugAndroidTest -PABI_FILTERS=arm64-v8a
           APK=$(find app/build/outputs/apk/playstore/debug -name '*arm64-v8a*.apk' -print -quit)
           "$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging "$APK" > audit-package.txt
-          grep -q "^package: name='com.v2ray.ang.audit' " audit-package.txt
+          grep -q "^package: name='com.v2ray.ang.audit.r${GITHUB_RUN_ID}' " audit-package.txt
       - name: Preserve isolated device audit APKs
         uses: actions/upload-artifact@v7
         with:

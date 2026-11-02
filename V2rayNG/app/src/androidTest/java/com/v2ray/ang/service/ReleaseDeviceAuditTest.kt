@@ -44,7 +44,9 @@ class ReleaseDeviceAuditTest {
     fun isolatedVpnLifecycleLatencyThroughputAndIdle() {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue("device audit requires explicit opt-in", arguments.getString("deviceAudit") == "true")
-        require(context.packageName == "com.v2ray.ang.audit") { "device audit must use the isolated APK" }
+        require(Regex("""com\.v2ray\.ang\.audit(?:\.r[0-9]+)?""").matches(context.packageName)) {
+            "device audit must use the isolated APK"
+        }
         val idleSeconds = arguments.getString("idleSeconds")?.let { it.toIntOrNull() ?: error("invalid idleSeconds") } ?: 0
         require(idleSeconds in 0..300) { "idleSeconds must be within 0..300" }
         val speedArgument = arguments.getString("speedNotification") ?: "false"
