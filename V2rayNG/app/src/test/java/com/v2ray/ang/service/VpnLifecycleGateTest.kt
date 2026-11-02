@@ -17,6 +17,18 @@ class VpnLifecycleGateTest {
     }
 
     @Test
+    fun systemStartDuringHandoverKeepsTheExistingTunnel() {
+        val gate = VpnLifecycleGate()
+
+        assertTrue(gate.shouldReuseRunningTunnel(true, false, coreReloading = true))
+        assertTrue(gate.shouldReuseRunningTunnel(true, true, coreReloading = false))
+        assertFalse(gate.shouldReuseRunningTunnel(true, false, coreReloading = false))
+        assertFalse(gate.shouldReuseRunningTunnel(false, false, coreReloading = true))
+        gate.beginStop()
+        assertFalse(gate.shouldReuseRunningTunnel(true, false, coreReloading = true))
+    }
+
+    @Test
     fun normalStartAndRepeatedStartKeepOneSetup() {
         val gate = VpnLifecycleGate()
 

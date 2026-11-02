@@ -61,7 +61,8 @@ object CoreServiceManager {
     @Volatile private var handoverReloadJob: Job? = null
 
     @Volatile
-    private var isReloading = false
+    internal var isReloading = false
+        private set
 
     /** Tun descriptor the core was started with, null in the proxy only and root run modes. */
     private var currentVpnInterface: ParcelFileDescriptor? = null

@@ -72,15 +72,20 @@ class CoreVpnService : VpnService(), ServiceControl {
         NotificationManager.ensureForeground()
         // Always-on VPN restarts from OS deliver intent.action == SERVICE_INTERFACE or null intent.
         // A repeated system command must not replace the descriptor underneath a live core.
-        // If the native core exited, keep the existing recovery path that rebuilds the tunnel.
+        // A handover temporarily stops the core while keeping this tunnel alive.
+        // If the native core exited outside a reload, rebuild the tunnel as before.
         val isSystemVpnStart = intent == null || intent.action == SERVICE_INTERFACE
         if (isSystemVpnStart) {
-            if (lifecycle.shouldReuseRunningTunnel(isRunning, CoreServiceManager.isRunning())) return START_STICKY
+            if (lifecycle.shouldReuseRunningTunnel(
+                    isRunning, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                )) return START_STICKY
             unlockStart()
         }
         if (!tryLockStart()) {
             LogUtil.w(AppConfig.TAG, "StartCore-VPN: Start already in progress")
-            return if (isRunning && CoreServiceManager.isRunning()) START_STICKY else START_NOT_STICKY
+            return if (lifecycle.shouldReuseRunningTunnel(
+                    isRunning, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                )) START_STICKY else START_NOT_STICKY
         }
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received, systemVpnStart=$isSystemVpnStart")
         if (!setupVpnService()) {
@@ -392,6 +397,9 @@ internal class VpnLifecycleGate {
 
     fun isStopping(): Boolean = stopping.get()
 
-    fun shouldReuseRunningTunnel(serviceRunning: Boolean, coreRunning: Boolean): Boolean =
-        !stopping.get() && serviceRunning && coreRunning
+    fun shouldReuseRunningTunnel(
+        serviceRunning: Boolean,
+        coreRunning: Boolean,
+        coreReloading: Boolean = false
+    ): Boolean = !stopping.get() && serviceRunning && (coreRunning || coreReloading)
 }
