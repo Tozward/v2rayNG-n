@@ -1,6 +1,7 @@
 package com.v2ray.ang.dto
 
 import com.v2ray.ang.enums.TunBackend
+import com.v2ray.ang.handler.SettingsManager
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,5 +27,21 @@ class TunBackendTest {
         assertTrue(TunBackend.SING.usesLocalSocks)
         assertFalse(TunBackend.SING_NATIVE.usesLocalSocks)
         assertEquals("sing_native", TunBackend.SING_NATIVE.key)
+    }
+
+    @Test
+    fun onlyAnActualVpnServiceUsesACoreTunForEverySavedBackend() {
+        TunBackend.entries.forEach { backend ->
+            listOf(false, true).forEach { vpn ->
+                listOf(false, true).forEach { root ->
+                    assertEquals(vpn && !root, SettingsManager.isVpnServiceMode(vpn, root))
+                    assertEquals(
+                        vpn && !root && (backend == TunBackend.XRAY || backend == TunBackend.SING_NATIVE),
+                        SettingsManager.usesCoreTun(backend, vpn, root),
+                        "backend=$backend, vpn=$vpn, root=$root"
+                    )
+                }
+            }
+        }
     }
 }
