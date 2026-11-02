@@ -42,6 +42,9 @@ class TunBackendSmokeTest {
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "tun-user")
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_PASSWORD, "tun-secret")
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_ENABLE_UDP, true)
+        // External stacks must keep their required SOCKS listener even when
+        // the optional user-facing local proxy is disabled. Xray TUN needs none.
+        MmkvManager.encodeSettings(AppConfig.PREF_ENABLE_LOCAL_PROXY, false)
         MmkvManager.encodeRoutingRulesets(mutableListOf())
         val guid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.SOCKS).apply {
             remarks = "CI loopback fixture"
@@ -87,6 +90,17 @@ class TunBackendSmokeTest {
                 await("setup failure acknowledgement: $backend") { failures.get() > failuresBeforeStart }
                 await("failed setup service removal: $backend") { !serviceDump().contains("ServiceRecord{") }
                 assertTrue(isStopped())
+
+                if (backend == TunBackend.SING) {
+                    // Xray accepts this account, but SOCKS5 cannot encode its username.
+                    // Exercise native startup failure after fd/core acquisition and recovery.
+                    MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "x".repeat(256))
+                    val failuresBeforeNativeStart = failures.get()
+                    LauncherManager.startService(context, guid)
+                    await("native startup failure acknowledgement") { failures.get() > failuresBeforeNativeStart }
+                    await("native failure cleanup") { isStopped() && !serviceDump().contains("ServiceRecord{") }
+                    MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "tun-user")
+                }
 
                 // A stop racing asynchronous setup must not leave a tunnel or recreate one.
                 LauncherManager.startService(context, guid)

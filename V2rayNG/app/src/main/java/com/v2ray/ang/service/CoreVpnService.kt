@@ -23,6 +23,7 @@ import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.NotificationManager
 import com.v2ray.ang.handler.SettingsManager
+import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.root.RootLanSharing
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
@@ -143,6 +144,10 @@ class CoreVpnService : VpnService(), ServiceControl {
                 throw cancelled
             } catch (error: Exception) {
                 LogUtil.e(AppConfig.TAG, "StartCore-VPN: Setup failed, guid=${MmkvManager.getSelectServer()}", error)
+                MessageHelper.sendMsg2UI(
+                    this@CoreVpnService, AppConfig.MSG_STATE_START_FAILURE,
+                    error.message?.takeUnless { it.isBlank() } ?: error.javaClass.simpleName
+                )
                 stopAllService()
             }
         }
