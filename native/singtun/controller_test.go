@@ -50,6 +50,15 @@ func TestDeviceOptionsValidateBeforeOwningFD(t *testing.T) {
 	}
 }
 
+func TestDeviceOptionsPreserveSelectedMTU(t *testing.T) {
+	for _, mtu := range []int32{1280, 1500, 9000, 65535} {
+		options, err := deviceOptions(7, mtu, 10808, "10.10.14.1/30", "fc00::1/126", "", "")
+		if err != nil || options.MTU != uint32(mtu) || options.GSO {
+			t.Fatalf("selected MTU %d was not preserved on a plain Android fd: %+v: %v", mtu, options, err)
+		}
+	}
+}
+
 type echoHandler struct{ destinations chan M.Socksaddr }
 
 func (h echoHandler) NewConnectionEx(ctx context.Context, conn net.Conn, _, dst M.Socksaddr, onClose N.CloseHandlerFunc) {

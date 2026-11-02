@@ -52,6 +52,17 @@ class CoreTunConfigTest {
     }
 
     @Test
+    fun nativeInboundPreservesSelectedMtuIncludingJumbo() {
+        listOf(1280, 1500, 9000, 65535).forEach { mtu ->
+            val inbound = template()
+            CoreConfigManager.configureTunInbound(inbound, TunBackend.SING_NATIVE, mtu,
+                VpnInterfaceAddressConfig.OPTION_1, true)
+            val settings = JsonParser.parseString(JsonUtil.toJson(inbound)).asJsonObject.getAsJsonObject("settings")
+            assertEquals(mtu, settings["mtu"].asInt)
+        }
+    }
+
+    @Test
     fun xrayInboundKeepsItsProtocolSettingsAndSniffing() {
         val inbound = template()
         val settings = inbound.settings

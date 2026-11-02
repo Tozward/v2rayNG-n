@@ -14,6 +14,11 @@ import java.util.Arrays;
 public final class TunProbe {
     public static void main(String[] args) throws Exception {
         byte[] payload = "tun-smoke".getBytes(StandardCharsets.UTF_8);
+        boolean bulk = args[0].equals("tcp-bulk");
+        if (bulk) {
+            payload = new byte[256 * 1024];
+            for (int index = 0; index < payload.length; index++) payload[index] = (byte) (index * 31 + (index >> 11));
+        }
         InetSocketAddress destination = new InetSocketAddress("198.18.0.9", 12345);
         byte[] received;
         if (args[0].equals("udp")) {
@@ -28,13 +33,27 @@ public final class TunProbe {
         } else {
             try (Socket socket = new Socket()) {
                 socket.connect(destination, 1000);
-                socket.setSoTimeout(1000);
-                socket.getOutputStream().write(payload);
+                socket.setSoTimeout(bulk ? 5000 : 1000);
+                // Keep both directions draining without depending on socket
+                // buffers being large enough for the entire bulk payload.
+                byte[] outgoing = payload;
+                java.util.concurrent.FutureTask<Void> writer = new java.util.concurrent.FutureTask<>(() -> {
+                    socket.getOutputStream().write(outgoing);
+                    return null;
+                });
+                Thread writerThread = new Thread(writer, "tun-probe-writer");
+                writerThread.start();
                 received = new byte[payload.length];
-                new DataInputStream(socket.getInputStream()).readFully(received);
+                try {
+                    new DataInputStream(socket.getInputStream()).readFully(received);
+                    writer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+                } finally {
+                    socket.close();
+                    writerThread.join(5000);
+                }
             }
         }
         if (!Arrays.equals(payload, received)) throw new AssertionError("Payload changed");
-        new FileOutputStream(FileDescriptor.out).write(received);
+        new FileOutputStream(FileDescriptor.out).write("tun-smoke".getBytes(StandardCharsets.UTF_8));
     }
 }

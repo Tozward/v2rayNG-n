@@ -145,6 +145,22 @@ class TunBackendSmokeTest {
                 stopAndAwait()
             }
 
+            // Exercise the same stored GUI value through VpnService and both
+            // Sing entry paths. Inspect the kernel interface, not just JSON.
+            for (mtu in listOf(1280, 1500, 9000)) {
+                MmkvManager.encodeSettings(AppConfig.PREF_VPN_MTU, mtu.toString())
+                for (backend in listOf(TunBackend.SING, TunBackend.SING_NATIVE)) {
+                    MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key)
+                    LauncherManager.startService(context, guid)
+                    awaitTransfer(backend)
+                    assertTrue("actual VPN MTU $mtu: $backend",
+                        Regex("\\btun\\d+:.*\\bmtu $mtu\\b").containsMatchIn(shell("ip -o link show")))
+                    assertEquals("tun-smoke", probe(udp = false, bulk = true))
+                    assertTransfer(udp = true)
+                    stopAndAwait()
+                }
+            }
+
             MmkvManager.encodeServerRaw(customGuid, customTunConfig("sing-tun", duplicate = true))
             val failuresBeforeDuplicate = failures.get()
             LauncherManager.startService(context, customGuid)
@@ -186,9 +202,9 @@ class TunBackendSmokeTest {
         assertEquals("tun-smoke", probe(udp))
     }
 
-    private fun probe(udp: Boolean): String {
+    private fun probe(udp: Boolean, bulk: Boolean = false): String {
         val classpath = "${instrumentation.context.applicationInfo.sourceDir}:${context.applicationInfo.sourceDir}"
-        val protocol = if (udp) "udp" else "tcp"
+        val protocol = if (udp) "udp" else if (bulk) "tcp-bulk" else "tcp"
         return shell("env CLASSPATH=$classpath app_process /system/bin ${TunProbe::class.java.name} $protocol").trim()
     }
 
