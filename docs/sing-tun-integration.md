@@ -227,3 +227,35 @@ The core runtime pin is `f9a1f8e4a9cdf7dc0a939b7732f339550bc8e0cb`; dependency p
 compares freedom with the same verified application TLS1.3 fixture as Vision.
 The historical plain-TCP freedom column is not a matched estimate of Vision's
 protocol or native-integration overhead.
+
+### Candidate .3 validation and matched TLS analysis
+
+[Android build 41472886839](https://github.com/Tozward/v2rayNG-n/actions/runs/41472886839)
+passes at source `32bda978aceb88fac08dec81933ea053c01bc5f0`: native adapter
+race/vet and fd checks, four-ABI combined AAR, both distributions' unit tests,
+Kotlin compilation, debug/release assembly and lint, plus Android API24/API35
+VPN TCP/UDP checks at MTU1280/1500/9000. No physical phone was operated by this audit.
+
+[Core 41472283828](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41472283828)
+and [dependency 41471918840](https://github.com/Tozward/sing-tun/actions/runs/41471918840)
+pass their Linux and Windows jobs. The macOS cloud jobs were not acquired by a
+hosted runner and were cancelled for arm64 capacity constraints, so those cloud
+jobs did not pass. Local macOS arm64 tests using the final dependency pass the
+core's complete focused tagged race suite and the dependency's directional,
+FD, jumbo/vector and retained-upload-close race regressions.
+
+[Matched TLS control 41473742626](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41473742626)
+passes 9 cases / 27 uninstrumented rows. On one EPYC 9V74 runner, MTU9000 / GOMAXPROCS=4,
+the plain/direct-TLS/Vision duplex medians are 1927.61/1328.02/1333.56 MB/s. Direct
+TLS/Vision whole-process CPU is 18.18/22.00ms per 8MiB duplex operation. Their
+throughput ranges overlap; Vision is not established as faster. Matched one-way
+Vision upload/download remain 19.1% / 6.8% slower. The benchmark includes both
+application TLS endpoints and a simulated local Vision server; these CPU totals
+are not Android VPN-process power use. The runner differs from the earlier
+EPYC 7763 matrix, so the absolute values are not a cross-version speedup.
+
+Both native directions carry the full bulk data. Residual upload copying is in
+the fixture's ordinary Vision server/freedom path, a separate optimization
+candidate. The current client integration does not need an architecture rewrite
+to explain the old unmatched plain-TCP/Vision table. See the
+[complete audit](https://github.com/Tozward/Xray-core-socks-uds/blob/e3a337d9a4e86d9b0ad761ab2571c78705155444/docs/native-sing-tun.md#production-test-audit-follow-up).
