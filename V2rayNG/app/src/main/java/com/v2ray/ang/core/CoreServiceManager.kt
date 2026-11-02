@@ -119,8 +119,9 @@ object CoreServiceManager {
                 return true
             } catch (e: Exception) {
                 currentTunBackend = null
-                val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
-                LogUtil.e(AppConfig.TAG, "StartCore-Manager: $message", e)
+                val detail = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
+                val message = if (e is CoreTunConfigException) service.getString(e.messageRes) else detail
+                LogUtil.e(AppConfig.TAG, "StartCore-Manager: $detail", e)
                 MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
                 NotificationManager.cancelNotification()
                 return false
@@ -311,8 +312,9 @@ object CoreServiceManager {
             LogUtil.i(AppConfig.TAG, "StartCore-Manager: Core reload finished")
             true
         } catch (e: Exception) {
-            val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to reload core: $message", e)
+            val detail = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
+            val message = if (e is CoreTunConfigException) service.getString(e.messageRes) else detail
+            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to reload core: $detail", e)
             MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
             if (currentVpnInterface != null) {
                 currentTunBackend = null

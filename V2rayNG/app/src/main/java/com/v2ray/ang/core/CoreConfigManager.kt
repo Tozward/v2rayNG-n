@@ -2,9 +2,11 @@ package com.v2ray.ang.core
 
 import android.content.Context
 import android.text.TextUtils
+import androidx.annotation.StringRes
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.v2ray.ang.AppConfig
+import com.v2ray.ang.R
 import com.v2ray.ang.dto.ConfigResult
 import com.v2ray.ang.dto.CoreConfigContext
 import com.v2ray.ang.dto.V2rayConfig
@@ -23,6 +25,8 @@ import com.v2ray.ang.util.JsonUtil
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.PackageUidResolver
 import com.v2ray.ang.util.Utils
+
+internal class CoreTunConfigException(@StringRes val messageRes: Int, detail: String) : IllegalArgumentException(detail)
 
 object CoreConfigManager {
     private var initConfigCache: String? = null
@@ -50,7 +54,8 @@ object CoreConfigManager {
             return ConfigResult(
                 status = false,
                 guid = guid,
-                errorMessage = "Failed to get V2ray config: ${e.message ?: e.javaClass.simpleName}"
+                errorMessage = if (e is CoreTunConfigException) context.getString(e.messageRes)
+                    else "Failed to get V2ray config: ${e.message ?: e.javaClass.simpleName}"
             )
         }
     }
@@ -80,7 +85,8 @@ object CoreConfigManager {
             return ConfigResult(
                 status = false,
                 guid = guid,
-                errorMessage = "Failed to get V2ray config: ${e.message ?: e.javaClass.simpleName}"
+                errorMessage = if (e is CoreTunConfigException) context.getString(e.messageRes)
+                    else "Failed to get V2ray config: ${e.message ?: e.javaClass.simpleName}"
             )
         }
     }
@@ -124,11 +130,12 @@ object CoreConfigManager {
             }
         }
 
-        val explicitBackend = if (SettingsManager.isVpnMode()) explicitTunBackend(json) else null
+        val vpnServiceMode = SettingsManager.isVpnServiceMode()
+        val explicitBackend = explicitTunBackend(json, vpnServiceMode)
         val tunBackend = explicitBackend ?: SettingsManager.getTunBackend()
-        if (!SettingsManager.isVpnMode() || tunBackend.usesLocalSocks) {
+        if (!vpnServiceMode || tunBackend.usesLocalSocks) {
             return JsonUtil.toJsonPretty(json)?.let {
-                ConfigResult(true, configContext.guid, it, tunBackend = tunBackend)
+                ConfigResult(true, configContext.guid, it, tunBackend = if (vpnServiceMode) tunBackend else null)
             } ?: result
         }
 
@@ -154,7 +161,7 @@ object CoreConfigManager {
             val templateConfig = initV2rayConfig(configContext)
             if (tunBackend == TunBackend.SING_NATIVE) configureInbounds(templateConfig)
             val inboundTun = templateConfig.inbounds.firstOrNull { it.tag == "tun" }
-                ?: error("Missing TUN inbound template")
+                ?: throw CoreTunConfigException(R.string.error_tun_config_invalid, "Missing TUN inbound template")
             if (tunBackend == TunBackend.XRAY) inboundTun.settings?.mtu = SettingsManager.getVpnMtu()
             inboundTun
         }
@@ -471,7 +478,7 @@ object CoreConfigManager {
             status = true,
             guid = configContext.guid,
             content = JsonUtil.toJsonPretty(v2rayConfig) ?: "",
-            tunBackend = if (SettingsManager.isVpnMode()) {
+            tunBackend = if (SettingsManager.isVpnServiceMode()) {
                 v2rayConfig.inbounds.mapNotNull { coreTunBackend(it.protocol) }.singleOrNull()
                     ?: SettingsManager.getTunBackend()
             } else null
@@ -508,18 +515,41 @@ object CoreConfigManager {
     //region some sub function
 
     private fun needTun(): Boolean {
-        return SettingsManager.isVpnMode() && !SettingsManager.isUsingExternalTun()
+        return SettingsManager.isUsingCoreTun()
     }
 
     /** One Android descriptor may have only one core reader; explicit custom choices win. */
-    internal fun explicitTunBackend(json: JsonObject): TunBackend? {
+    internal fun explicitTunBackend(json: JsonObject, vpnServiceMode: Boolean = true): TunBackend? {
+        if (!vpnServiceMode) {
+            // Outside VPN mode, preserve legacy custom configs. Reject every native
+            // reader even in ambiguous fields: these services supply no Android fd.
+            val hasNativeTun = json.entrySet().any { entry ->
+                entry.key.equals("inbounds", ignoreCase = true) && entry.value.takeIf { it.isJsonArray }?.asJsonArray?.any { inbound ->
+                    inbound.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()?.any { field ->
+                        field.key.equals("protocol", ignoreCase = true) && coreTunBackend(
+                            field.value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+                        ) == TunBackend.SING_NATIVE
+                    } == true
+                } == true
+            }
+            if (hasNativeTun) throw CoreTunConfigException(
+                R.string.error_tun_vpn_mode_required, "sing-tun requires VpnService mode with root mode disabled"
+            )
+            return null
+        }
         val backends = coreTunInbounds(json)
             ?.mapNotNull { inbound ->
-                val protocol = inbound.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()
-                    ?.lastOrNull { it.key.equals("protocol", ignoreCase = true) }?.value
+                val fields = inbound.takeIf { it.isJsonObject }?.asJsonObject?.entrySet()
+                    ?.filter { it.key.equals("protocol", ignoreCase = true) }.orEmpty()
+                if (fields.size > 1) throw CoreTunConfigException(
+                    R.string.error_tun_config_invalid, "Each inbound may contain only one protocol field"
+                )
+                val protocol = fields.singleOrNull()?.value
                 coreTunBackend(protocol?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString)
             }.orEmpty()
-        require(backends.size <= 1) { "Only one tun or sing-tun inbound may use the VPN descriptor" }
+        if (backends.size > 1) throw CoreTunConfigException(
+            R.string.error_tun_config_invalid, "Only one tun or sing-tun inbound may use the VPN descriptor"
+        )
         return backends.singleOrNull()
     }
 
@@ -527,9 +557,11 @@ object CoreConfigManager {
         // Go accepts case variants, but decoding multiple arrays can reuse earlier
         // struct fields. Reject ambiguous reader lists rather than merge them here.
         val fields = json.entrySet().filter { it.key.equals("inbounds", ignoreCase = true) }
-        require(fields.size <= 1) { "Only one inbounds field may be specified" }
+        if (fields.size > 1) throw CoreTunConfigException(
+            R.string.error_tun_config_invalid, "Only one inbounds field may be specified"
+        )
         return fields.singleOrNull()?.value?.also {
-            require(it.isJsonArray) { "inbounds must be an array" }
+            if (!it.isJsonArray) throw CoreTunConfigException(R.string.error_tun_config_invalid, "inbounds must be an array")
         }?.asJsonArray
     }
 
@@ -547,9 +579,9 @@ object CoreConfigManager {
         val backend = explicitBackend ?: selected
         // An external reader survives an in-place core reload. Changing readers requires
         // a full VPN restart, which joins the old reader before reusing its descriptor.
-        require(runningBackend == null || backend == runningBackend) {
-            "Restart the VPN service to change the TUN backend"
-        }
+        if (runningBackend != null && backend != runningBackend) throw CoreTunConfigException(
+            R.string.error_tun_backend_restart_required, "Restart the VPN service to change the TUN backend"
+        )
         return backend
     }
 
@@ -567,7 +599,9 @@ object CoreConfigManager {
         addresses: VpnInterfaceAddressConfig,
         ipv6Enabled: Boolean
     ) {
-        require(!backend.usesLocalSocks) { "SOCKS-backed TUN must not create a core TUN inbound" }
+        if (backend.usesLocalSocks) throw CoreTunConfigException(
+            R.string.error_tun_config_invalid, "SOCKS-backed TUN must not create a core TUN inbound"
+        )
         if (backend == TunBackend.SING_NATIVE) {
             // These prefixes match CoreVpnService.configureNetworkSettings exactly.
             val prefixes = mutableListOf("${addresses.ipv4Client}/30")
@@ -590,7 +624,7 @@ object CoreConfigManager {
      * Configure inbound listeners and related runtime options.
      */
     private fun configureInbounds(v2rayConfig: V2rayConfig) {
-        val vpn = SettingsManager.isVpnMode()
+        val vpn = SettingsManager.isVpnServiceMode()
         val forcedByTun = vpn && SettingsManager.isUsingExternalTun()
         val forcedBySocksRoot = SettingsManager.isRootMode()
                 || MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_LAN_SHARING)
@@ -739,7 +773,7 @@ object CoreConfigManager {
             )
         }
 
-        if (SettingsManager.isVpnMode()) {
+        if (SettingsManager.isVpnServiceMode()) {
             if (SettingsManager.isUsingExternalTun()) {
                 // External TUN stacks forward DNS through the existing SOCKS inbound.
                 v2rayConfig.routing.rules.add(

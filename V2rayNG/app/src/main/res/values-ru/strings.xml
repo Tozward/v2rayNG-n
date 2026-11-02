@@ -584,4 +584,7 @@
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (экспериментальный)</string>
     <string name="tun_backend_sing_native">Нативный Sing TUN (экспериментальный)</string>
+    <string name="error_tun_config_invalid">Недопустимая конфигурация VPN TUN. Укажите один массив inbounds, не более одного входящего подключения tun или sing-tun и одно поле protocol для каждого входящего подключения.</string>
+    <string name="error_tun_backend_restart_required">Остановите и снова запустите VPN, чтобы сменить движок туннеля.</string>
+    <string name="error_tun_vpn_mode_required">Для нативного Sing TUN требуется режим VPN с отключённым root-режимом.</string>
 </resources>

@@ -433,6 +433,16 @@ object SettingsManager {
         return MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_MODE_ENABLE, false)
     }
 
+    /** Match LauncherManager: root mode takes precedence over the saved VPN setting. */
+    fun isVpnServiceMode(): Boolean = isVpnServiceMode(isVpnMode(), isRootMode())
+
+    internal fun isVpnServiceMode(vpnMode: Boolean, rootMode: Boolean): Boolean = vpnMode && !rootMode
+
+    internal fun usesCoreTun(tunBackend: TunBackend, vpnMode: Boolean, rootMode: Boolean): Boolean =
+        isVpnServiceMode(vpnMode, rootMode) && !tunBackend.usesLocalSocks
+
+    fun isUsingCoreTun(): Boolean = usesCoreTun(getTunBackend(), isVpnMode(), isRootMode())
+
     /**
      *  Check if process routing can be used.
      */
@@ -442,8 +452,8 @@ object SettingsManager {
             return false
         }
 
-        // Core TUN inbounds supply process metadata; SOCKS bridges do not.
-        if (tunBackend.usesLocalSocks) {
+        // Core TUN inbounds supply process metadata only in VpnService mode.
+        if (!usesCoreTun(tunBackend, isVpnMode(), isRootMode())) {
             return false
         }
 

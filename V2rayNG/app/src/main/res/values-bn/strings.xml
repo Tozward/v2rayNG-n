@@ -580,4 +580,7 @@
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (পরীক্ষামূলক)</string>
     <string name="tun_backend_sing_native">Sing নেটিভ TUN (পরীক্ষামূলক)</string>
+    <string name="error_tun_config_invalid">VPN TUN কনফিগারেশন সঠিক নয়। একটি inbounds অ্যারে, সর্বোচ্চ একটি tun বা sing-tun ইনবাউন্ড এবং প্রতিটি ইনবাউন্ডের জন্য একটি protocol ফিল্ড নির্দিষ্ট করুন।</string>
+    <string name="error_tun_backend_restart_required">টানেল ইঞ্জিন পরিবর্তন করতে VPN বন্ধ করে আবার চালু করুন।</string>
+    <string name="error_tun_vpn_mode_required">Sing নেটিভ TUN ব্যবহার করতে VPN মোড চালু এবং রুট মোড বন্ধ থাকতে হবে।</string>
 </resources>

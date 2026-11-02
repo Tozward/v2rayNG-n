@@ -1,9 +1,11 @@
 package com.v2ray.ang.core
 
 import com.google.gson.JsonParser
+import com.v2ray.ang.R
 import com.v2ray.ang.dto.V2rayConfig
 import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.enums.VpnInterfaceAddressConfig
+import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.util.JsonUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -81,6 +83,55 @@ class CoreTunConfigTest {
     }
 
     @Test
+    fun customNativeTunRequiresActualVpnModeRegardlessOfSavedBackend() {
+        val json = JsonParser.parseString("""{"inbounds":[{"protocol":"sing-tun"}]}""").asJsonObject
+        val original = json.deepCopy()
+        TunBackend.entries.forEach { backend ->
+            listOf(false, true).forEach { vpn ->
+                listOf(false, true).forEach { root ->
+                    val actualVpn = SettingsManager.isVpnServiceMode(vpn, root)
+                    if (actualVpn) {
+                        val explicit = CoreConfigManager.explicitTunBackend(json, actualVpn)
+                        assertEquals(TunBackend.SING_NATIVE, CoreConfigManager.resolveTunBackend(explicit, backend))
+                    } else {
+                        val error = assertThrows(CoreTunConfigException::class.java) {
+                            CoreConfigManager.explicitTunBackend(json, actualVpn)
+                        }
+                        assertEquals(R.string.error_tun_vpn_mode_required, error.messageRes)
+                    }
+                    assertEquals(original, json)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun nativeProtocolCannotHideInCustomNonVpnCaseOrNullOverwriteFields() {
+        listOf(
+            """{"INBOUNDS":[{"PROTOCOL":"SING-TUN"}]}""",
+            """{"inbounds":[{"protocol":"sing-tun","PROTOCOL":null}]}""",
+            """{"inbounds":[{"protocol":"sing-tun"}],"INBOUNDS":null}"""
+        ).forEach { content ->
+            val json = JsonParser.parseString(content).asJsonObject
+            val error = assertThrows(CoreTunConfigException::class.java) { CoreConfigManager.explicitTunBackend(json, false) }
+            assertEquals(R.string.error_tun_vpn_mode_required, error.messageRes)
+        }
+    }
+
+    @Test
+    fun nonVpnLegacyCustomConfigsKeepTheirOriginalInbounds() {
+        listOf(
+            """{"inbounds":[{"protocol":"tun"},{"protocol":"tun"}]}""",
+            """{"inbounds":[{"protocol":"socks","port":10808}]}"""
+        ).forEach { content ->
+            val json = JsonParser.parseString(content).asJsonObject
+            val original = json.deepCopy()
+            assertNull(CoreConfigManager.explicitTunBackend(json, false))
+            assertEquals(original, json)
+        }
+    }
+
+    @Test
     fun customConfigWithoutCoreTunGetsExactlyOneNativeInbound() {
         val json = JsonParser.parseString("""{"inbounds":[{"protocol":"socks","port":10808}],"dns":{"servers":["fakedns"]},"routing":{"rules":[{"process":["10001"]}]}}""").asJsonObject
         val dns = json.getAsJsonObject("dns").deepCopy()
@@ -136,11 +187,24 @@ class CoreTunConfigTest {
         assertEquals(setOf("INBOUNDS"), absent.keySet())
         assertEquals(2, absent.getAsJsonArray("INBOUNDS").size())
 
-        val lastWins = JsonParser.parseString("""{"inbounds":[{"protocol":"tun","PROTOCOL":"sing-tun"}]}""").asJsonObject
-        assertEquals(TunBackend.SING_NATIVE, CoreConfigManager.explicitTunBackend(lastWins))
-
         val ambiguous = JsonParser.parseString("""{"inbounds":[{"protocol":"tun"}],"INBOUNDS":[{}]}""").asJsonObject
         assertThrows(IllegalArgumentException::class.java) { CoreConfigManager.explicitTunBackend(ambiguous) }
+    }
+
+    @Test
+    fun ambiguousProtocolFieldsCannotHideAnExistingCoreReader() {
+        for (inbound in listOf(
+            """{"protocol":"tun","PROTOCOL":"sing-tun"}""",
+            """{"protocol":"sing-tun","PROTOCOL":null}""",
+            """{"PROTOCOL":null,"protocol":"sing-tun"}""",
+            """{"protocol":"socks","PROTOCOL":"SING-TUN"}"""
+        )) {
+            val json = JsonParser.parseString("""{"inbounds":[$inbound]}""").asJsonObject
+            assertThrows(IllegalArgumentException::class.java) { CoreConfigManager.explicitTunBackend(json) }
+            assertThrows(IllegalArgumentException::class.java) {
+                CoreConfigManager.addTunInboundIfAbsent(json) { template() }
+            }
+        }
     }
 
     @Test

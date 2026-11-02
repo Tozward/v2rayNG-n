@@ -588,4 +588,7 @@
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (تجريبي)</string>
     <string name="tun_backend_sing_native">Sing TUN الأصلي (تجريبي)</string>
+    <string name="error_tun_config_invalid">إعداد VPN TUN غير صالح. حدد مصفوفة inbounds واحدة تتضمن مدخلاً واحدًا من نوع tun أو sing-tun كحد أقصى، وحقل protocol واحدًا لكل مدخل.</string>
+    <string name="error_tun_backend_restart_required">أوقف VPN ثم أعد تشغيله لتغيير محرك النفق.</string>
+    <string name="error_tun_vpn_mode_required">يتطلب Sing TUN الأصلي وضع VPN مع تعطيل وضع الروت.</string>
 </resources>

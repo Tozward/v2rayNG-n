@@ -18,6 +18,11 @@ remain compatible; upgrading does not select either experimental backend.
 The saved `sing` key keeps its existing behavior. No preference migration or
 default change selects `sing_native`. Proxy-only and root mode retain their
 existing paths; this choice controls VPN mode only.
+Root mode takes priority over the saved VPN setting, matching the launcher.
+Core TUN generation and process metadata require VPN mode with root mode disabled;
+root/proxy mode keeps its SOCKS path even when `sing_native` is saved. An explicit
+custom `sing-tun` outside that VPN mode is rejected before core startup because
+those services supply no Android TUN descriptor.
 
 Audited source:
 
@@ -104,9 +109,11 @@ session or forwarding pipe in this path and no end-to-end zero-copy claim.
 
 `GoConn.Splice` and `SpliceDownload` are engine-owned socket I/O, not Linux
 `splice(2)`. Existing HEV and SOCKS-backed Sing choices remain available for
-comparison, including Xray's existing TCP kernel-splice path. No measurement
-here establishes that native or bidirectional handoff is faster, or that Sing
-is universally faster or more energy efficient. Compare raw/Vision, encrypted
+comparison, including Xray's existing TCP kernel-splice path. The
+[matched Linux measurements](https://github.com/Tozward/Xray-core-socks-uds/blob/78b38f0a/docs/native-sing-tun.md#measured-comparison)
+show a throughput/CPU/allocation tradeoff. They do not establish an Android
+speed or energy improvement, or a universal advantage for bidirectional handoff.
+Compare raw/Vision, encrypted
 and multiplexed traffic separately on the target Android device.
 
 In a custom VPN configuration, one explicit `tun` or `sing-tun` inbound takes
@@ -160,6 +167,11 @@ matrix; configured scenarios are not runtime evidence until their run passes.
 restart. The pre-existing command receiver is unregistered during teardown,
 before the delayed replacement starts, so an explicit stop in that interval can
 miss the pending restart. This task does not change that restart mechanism.
+
+**Not run:** physical rooted-Android validation with `sing_native` saved and the
+VPN setting still enabled: root SOCKS startup, duplicate start, setup failure,
+restart, repeated stop and cleanup. The configuration decision has JVM regression
+coverage; it does not establish rooted-device lifecycle behavior.
 
 Android service/UI runtime checks and comparative throughput, CPU, wakeup,
 memory, and energy measurements must be reported separately from build checks.
