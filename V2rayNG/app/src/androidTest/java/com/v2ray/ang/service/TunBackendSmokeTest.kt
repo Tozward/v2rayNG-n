@@ -43,12 +43,12 @@ class TunBackendSmokeTest {
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_PASSWORD, "tun-secret")
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_ENABLE_UDP, true)
         MmkvManager.encodeRoutingRulesets(mutableListOf())
-        val guid = MmkvManager.encodeServerConfig("", ProfileItem(EConfigType.SOCKS).apply {
+        val guid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.SOCKS).apply {
             remarks = "CI loopback fixture"
             server = "10.0.2.2"
             serverPort = "18080"
         })
-        val invalidGuid = MmkvManager.encodeServerConfig("", ProfileItem(EConfigType.CUSTOM).apply {
+        val invalidGuid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.CUSTOM).apply {
             remarks = "CI invalid configuration"
         })
         MmkvManager.encodeServerRaw(invalidGuid, "{invalid-json")

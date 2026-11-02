@@ -61,6 +61,16 @@ import kotlinx.coroutines.launch
 class SettingsActivity : BaseComponentActivity() {
 
     private val viewModel: SettingsViewModel by viewModels()
+    private var finishRequested = false
+
+    override fun finish() {
+        if (finishRequested) return
+        finishRequested = true
+        lifecycleScope.launch {
+            viewModel.awaitTunBackendSave()
+            super@SettingsActivity.finish()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

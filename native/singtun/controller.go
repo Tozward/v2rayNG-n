@@ -207,6 +207,14 @@ func (h *forwarder) NewConnectionEx(ctx context.Context, conn net.Conn, _, desti
 	remote, err := h.client.DialContext(dialCtx, N.NetworkTCP, destination)
 	cancel()
 	if err == nil {
+		// GoConn defers SYN-ACK until the outbound handshake succeeds. Splice
+		// requires the established phase, just as sing-box's connection manager.
+		err = N.ReportHandshakeSuccess(conn)
+		if err != nil {
+			_ = remote.Close()
+		}
+	}
+	if err == nil {
 		if source, ok := conn.(*tun.GoConn); ok {
 			if socket, ok := remote.(*net.TCPConn); ok {
 				spliced = source.Splice(&spliceSocket{Conn: socket, original: socket, closer: socket}, tun.SpliceOptions{

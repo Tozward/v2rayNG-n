@@ -15,6 +15,7 @@ import com.v2ray.ang.ui.base.BaseViewModel
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,25 +51,36 @@ class SettingsViewModel internal constructor(
     val tunBackendSaveError = _tunBackendSaveError.asStateFlow()
     private val tunBackendSaveLock = Mutex()
     private var savedTunBackend = initialTunBackend
+    private var tunBackendSaveJob: Job? = null
+
+    /** The activity result must follow the persisted setting and its restart notification. */
+    suspend fun awaitTunBackendSave() {
+        do {
+            val pending = tunBackendSaveJob
+            pending?.join()
+        } while (pending !== tunBackendSaveJob)
+    }
 
     fun setTunBackend(backend: TunBackend) {
         if (_tunBackend.value == backend) return
         _tunBackendSaveError.value = false
         _tunBackend.value = backend
-        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            withContext(NonCancellable + Dispatchers.IO) {
+        tunBackendSaveJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) {
                 tunBackendSaveLock.withLock {
-                    val selected = _tunBackend.value
-                    try {
-                        saveTunBackend(selected)
-                        savedTunBackend = selected
-                        if (_tunBackend.value == selected) _tunBackendSaveError.value = false
-                    } catch (error: Exception) {
-                        if (_tunBackend.value == selected) {
-                            _tunBackend.value = savedTunBackend
-                            _tunBackendSaveError.value = true
+                    withContext(Dispatchers.IO) {
+                        val selected = _tunBackend.value
+                        try {
+                            saveTunBackend(selected)
+                            savedTunBackend = selected
+                            if (_tunBackend.value == selected) _tunBackendSaveError.value = false
+                        } catch (error: Exception) {
+                            if (_tunBackend.value == selected) {
+                                _tunBackend.value = savedTunBackend
+                                _tunBackendSaveError.value = true
+                            }
+                            LogUtil.e(AppConfig.TAG, "Failed to save VPN TUN backend", error)
                         }
-                        LogUtil.e(AppConfig.TAG, "Failed to save VPN TUN backend", error)
                     }
                 }
             }

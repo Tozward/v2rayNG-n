@@ -81,8 +81,9 @@ class SettingsViewModelTest {
             ViewModelStore().apply { put("settings", model); clear() }
             finishWrite.countDown()
             runBlocking {
-                withTimeout(5_000) { while (stored.get() != TunBackend.XRAY) delay(10) }
+                withTimeout(5_000) { model.awaitTunBackendSave() }
             }
+            assertEquals(TunBackend.XRAY, stored.get())
             val reopened = SettingsViewModel(mock<Application>(), { true }, {}, stored.get()) {}
             assertEquals(TunBackend.XRAY, reopened.tunBackend.value)
         } finally {

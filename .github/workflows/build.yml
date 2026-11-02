@@ -154,6 +154,7 @@ jobs:
             if not targets:
                 raise SystemExit(f'Unknown APK ABI: {apk.name}')
             with ZipFile(apk) as archive:
+                assert archive.getinfo('assets/sing-tun-LICENSE.txt').file_size > 0
                 for abi in targets:
                     for library in ('libgojni.so', 'libhev-socks5-tunnel.so', 'libhevsockstun.so'):
                         entry = f'lib/{abi}/{library}'
@@ -207,6 +208,10 @@ jobs:
         api: [24, 35]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
       - uses: actions/download-artifact@v8
         with:
           name: emulator-tests
