@@ -436,14 +436,14 @@ object SettingsManager {
     /**
      *  Check if process routing can be used.
      */
-    fun canUseProcessRouting(): Boolean {
+    fun canUseProcessRouting(tunBackend: TunBackend = getTunBackend()): Boolean {
         // Android 10+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return false
         }
 
-        // Must xray tun
-        if (isUsingExternalTun()) {
+        // Core TUN inbounds supply process metadata; SOCKS bridges do not.
+        if (tunBackend.usesLocalSocks) {
             return false
         }
 

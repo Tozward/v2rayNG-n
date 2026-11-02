@@ -402,7 +402,7 @@ class CoreVpnService : VpnService(), ServiceControl {
     private fun runTun2socks() {
         val vpnInterface = mInterface ?: return
         if (!isRunning || lifecycle.isStopping()) return
-        tun2SocksService = when (SettingsManager.getTunBackend()) {
+        tun2SocksService = when (CoreServiceManager.getRunningTunBackend() ?: return) {
             TunBackend.HEV -> TProxyService(
                 context = applicationContext,
                 vpnInterface = vpnInterface,
@@ -410,7 +410,7 @@ class CoreVpnService : VpnService(), ServiceControl {
                 restartCallback = { runTun2socks() }
             )
             TunBackend.SING -> SingTunService(vpnInterface)
-            TunBackend.XRAY -> null
+            TunBackend.XRAY, TunBackend.SING_NATIVE -> null
         }
 
         tun2SocksService?.startTun2Socks()

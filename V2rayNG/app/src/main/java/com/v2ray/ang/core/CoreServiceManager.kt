@@ -18,6 +18,7 @@ import com.v2ray.ang.dto.ConnectionTestResult
 import com.v2ray.ang.dto.OutboundTrafficStat
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.enums.BrowserDialerMode
+import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.extension.delay
 import com.v2ray.ang.extension.isNotNullEmpty
 import com.v2ray.ang.handler.MmkvManager
@@ -67,6 +68,11 @@ object CoreServiceManager {
     /** Tun descriptor the core was started with, null in the proxy only and root run modes. */
     private var currentVpnInterface: ParcelFileDescriptor? = null
 
+    /** Reader chosen from the exact daemon config, including an explicit custom TUN. */
+    @Volatile private var currentTunBackend: TunBackend? = null
+
+    fun getRunningTunBackend(): TunBackend? = currentTunBackend
+
     var serviceControl: SoftReference<ServiceControl>? = null
         set(value) {
             field = value
@@ -112,6 +118,7 @@ object CoreServiceManager {
                 doStartCoreLoop(service, vpnInterface)
                 return true
             } catch (e: Exception) {
+                currentTunBackend = null
                 val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
                 LogUtil.e(AppConfig.TAG, "StartCore-Manager: $message", e)
                 MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
@@ -141,12 +148,19 @@ object CoreServiceManager {
 
         LogUtil.i(AppConfig.TAG, "StartCore-Manager: Starting core loop for ${config.remarks}")
         val result = CoreConfigManager.getV2rayConfig(service, guid)
-        LogUtil.d(AppConfig.TAG, result.content)
         if (!result.status) {
             error(result.errorMessage.ifBlank { "Failed to get V2Ray config" })
         }
 
         currentConfig = config
+        val tunBackend = if (vpnInterface != null) {
+            CoreConfigManager.resolveTunBackend(
+                result.tunBackend, SettingsManager.getTunBackend(),
+                if (isReload) currentTunBackend else null
+            )
+        } else {
+            SettingsManager.getTunBackend()
+        }
         var tunFd = vpnInterface?.fd ?: 0
         val dialerMode = BrowserDialerMode.from(config.browserDialerMode)
         val dialerAddr = if (dialerMode != null) {
@@ -154,7 +168,7 @@ object CoreServiceManager {
         } else {
             ""
         }
-        if (SettingsManager.isUsingExternalTun()) {
+        if (tunBackend.usesLocalSocks) {
             tunFd = 0
         }
 
@@ -167,6 +181,7 @@ object CoreServiceManager {
         if (!isRunning()) {
             error("Core failed to start")
         }
+        currentTunBackend = tunBackend
 
         if (browserDialer != null) {
             browserDialer!!.stop()
@@ -224,6 +239,7 @@ object CoreServiceManager {
                 } catch (e: Exception) {
                     LogUtil.e(AppConfig.TAG, "StartCore-Manager: VPN/proxy/root stop failed to stop V2Ray loop", e)
                 } finally {
+                    currentTunBackend = null
                     if (service != null) MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
                     NotificationManager.cancelNotification(service)
                 }
@@ -298,6 +314,11 @@ object CoreServiceManager {
             val message = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
             LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to reload core: $message", e)
             MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, message)
+            if (currentVpnInterface != null) {
+                currentTunBackend = null
+                // A reader change requires the VPN owner's full descriptor/bridge teardown.
+                serviceControl?.get()?.takeIf { it.getService() === service }?.stopService()
+            }
             false
         } finally {
             isReloading = false

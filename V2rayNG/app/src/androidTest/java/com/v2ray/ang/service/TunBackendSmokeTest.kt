@@ -41,12 +41,13 @@ class TunBackendSmokeTest {
         MmkvManager.encodeSettings(AppConfig.PREF_VPN_BYPASS_LAN, "2")
         MmkvManager.encodeSettings(AppConfig.PREF_LOCAL_DNS_ENABLED, false)
         MmkvManager.encodeSettings(AppConfig.PREF_FAKE_DNS_ENABLED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_IPV6_ENABLED, false)
         MmkvManager.encodeSettings(AppConfig.PREF_SNIFFING_ENABLED, false)
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "tun-user")
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_PASSWORD, "tun-secret")
         MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_ENABLE_UDP, true)
         // External stacks must keep their required SOCKS listener even when
-        // the optional user-facing local proxy is disabled. Xray TUN needs none.
+        // the optional user-facing local proxy is disabled. Core TUNs need none.
         MmkvManager.encodeSettings(AppConfig.PREF_ENABLE_LOCAL_PROXY, false)
         SettingsManager.initAssets(context, context.assets)
         // A nonempty rule list also prevents a fresh daemon from installing its
@@ -64,6 +65,9 @@ class TunBackendSmokeTest {
             remarks = "CI invalid configuration"
         })
         MmkvManager.encodeServerRaw(invalidGuid, "{invalid-json")
+        val customGuid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.CUSTOM).apply {
+            remarks = "CI explicit core TUN"
+        })
         val successes = AtomicInteger()
         val failures = AtomicInteger()
         val receiver = object : BroadcastReceiver() {
@@ -77,7 +81,7 @@ class TunBackendSmokeTest {
         ContextCompat.registerReceiver(context, receiver,
             IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY), ContextCompat.RECEIVER_NOT_EXPORTED)
         try {
-            for (backend in listOf(TunBackend.SING, TunBackend.HEV, TunBackend.XRAY)) {
+            for (backend in listOf(TunBackend.SING, TunBackend.HEV, TunBackend.XRAY, TunBackend.SING_NATIVE)) {
                 assertTrue(MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key))
                 LauncherManager.startService(context, guid)
                 LauncherManager.startService(context, guid)
@@ -128,6 +132,24 @@ class TunBackendSmokeTest {
                 awaitTransfer(backend)
                 stopAndAwait()
             }
+
+            // The explicit custom protocol owns the sole reader even when the saved
+            // choice would otherwise start a different core or an external SOCKS stack.
+            for ((protocol, selected) in listOf("tun" to TunBackend.SING_NATIVE, "sing-tun" to TunBackend.SING)) {
+                MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, selected.key)
+                MmkvManager.encodeServerRaw(customGuid, customTunConfig(protocol))
+                LauncherManager.startService(context, customGuid)
+                awaitTransfer(if (protocol == "tun") TunBackend.XRAY else TunBackend.SING_NATIVE)
+                assertTransfer(udp = true)
+                assertEquals(selected, SettingsManager.getTunBackend())
+                stopAndAwait()
+            }
+
+            MmkvManager.encodeServerRaw(customGuid, customTunConfig("sing-tun", duplicate = true))
+            val failuresBeforeDuplicate = failures.get()
+            LauncherManager.startService(context, customGuid)
+            await("duplicate core TUN failure acknowledgement") { failures.get() > failuresBeforeDuplicate }
+            await("duplicate core TUN cleanup") { isStopped() && !serviceDump().contains("ServiceRecord{") }
             assertTrue("app processes must not crash during lifecycle transitions",
                 !shell("logcat -d -s AndroidRuntime:E").contains("Process: ${context.packageName}"))
         } finally {
@@ -136,7 +158,15 @@ class TunBackendSmokeTest {
             context.unregisterReceiver(receiver)
             MmkvManager.removeServer(guid)
             MmkvManager.removeServer(invalidGuid)
+            MmkvManager.removeServer(customGuid)
         }
+    }
+
+    private fun customTunConfig(protocol: String, duplicate: Boolean = false): String {
+        val addresses = SettingsManager.getCurrentVpnInterfaceAddressConfig()
+        val prefixes = if (protocol == "sing-tun") """, "address":["${addresses.ipv4Client}/30"]""" else ""
+        val inbound = """{"tag":"tun","protocol":"$protocol","settings":{"name":"xray0","mtu":${SettingsManager.getVpnMtu()},"userLevel":8$prefixes}}"""
+        return """{"inbounds":[$inbound${if (duplicate) ",$inbound" else ""}],"outbounds":[{"tag":"proxy","protocol":"socks","settings":{"servers":[{"address":"10.0.2.2","port":18080}]}}]}"""
     }
 
     private fun isStopped() = runBlocking {

@@ -583,4 +583,5 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (экспериментальный)</string>
+    <string name="tun_backend_sing_native">Нативный Sing TUN (экспериментальный)</string>
 </resources>

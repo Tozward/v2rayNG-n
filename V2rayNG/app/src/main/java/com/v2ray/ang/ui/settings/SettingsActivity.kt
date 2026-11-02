@@ -397,7 +397,8 @@ fun SettingsScreen(
                     entries = listOf(
                         stringResource(R.string.tun_backend_xray),
                         stringResource(R.string.tun_backend_hev),
-                        stringResource(R.string.tun_backend_sing)
+                        stringResource(R.string.tun_backend_sing),
+                        stringResource(R.string.tun_backend_sing_native)
                     ),
                     values = TunBackend.entries.map { it.key },
                     selectedValue = tunBackend.key,

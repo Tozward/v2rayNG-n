@@ -24,5 +24,7 @@ class TunBackendTest {
         assertFalse(TunBackend.XRAY.usesLocalSocks)
         assertTrue(TunBackend.HEV.usesLocalSocks)
         assertTrue(TunBackend.SING.usesLocalSocks)
+        assertFalse(TunBackend.SING_NATIVE.usesLocalSocks)
+        assertEquals("sing_native", TunBackend.SING_NATIVE.key)
     }
 }

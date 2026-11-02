@@ -43,9 +43,9 @@ jobs:
     - name: Test Sing TUN adapter
       working-directory: native/singtun
       run: |
-        go test -race -timeout 60s ./...
-        go vet ./...
-        go test -race -c -o "$RUNNER_TEMP/singtun.test" .
+        go test -race -tags with_sing_tun -timeout 60s ./...
+        go vet -tags with_sing_tun ./...
+        go test -race -tags with_sing_tun -c -o "$RUNNER_TEMP/singtun.test" .
         sudo "$RUNNER_TEMP/singtun.test" -test.run TestKernelFD -test.count 20 -test.v -test.timeout 120s
 
     - name: Setup Android SDK
@@ -130,6 +130,7 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug

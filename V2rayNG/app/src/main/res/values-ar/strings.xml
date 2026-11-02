@@ -587,4 +587,5 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (تجريبي)</string>
+    <string name="tun_backend_sing_native">Sing TUN الأصلي (تجريبي)</string>
 </resources>

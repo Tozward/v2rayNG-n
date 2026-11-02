@@ -577,4 +577,5 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (thử nghiệm)</string>
+    <string name="tun_backend_sing_native">Sing TUN gốc (thử nghiệm)</string>
 </resources>

@@ -43,16 +43,38 @@ class SettingsViewModelTest {
             mockStatic(MMKV::class.java).use { staticMock ->
                 staticMock.`when`<MMKV> { MMKV.mmkvWithID("SETTING", MMKV.MULTI_PROCESS_MODE) }.thenReturn(settings)
                 LogUtil.refreshLogLevel()
-                val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.HEV) {
-                    throw IllegalStateException("write failed")
+                for (backend in listOf(TunBackend.SING, TunBackend.SING_NATIVE)) {
+                    val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.HEV) {
+                        throw IllegalStateException("write failed")
+                    }
+                    assertFalse(model.tunBackendSaveError.value)
+                    model.setTunBackend(backend)
+                    runBlocking {
+                        withTimeout(5_000) { while (!model.tunBackendSaveError.value) delay(10) }
+                    }
+                    assertEquals(TunBackend.HEV, model.tunBackend.value)
                 }
-                assertFalse(model.tunBackendSaveError.value)
-                model.setTunBackend(TunBackend.SING)
-                runBlocking {
-                    withTimeout(5_000) { while (!model.tunBackendSaveError.value) delay(10) }
-                }
-                assertEquals(TunBackend.HEV, model.tunBackend.value)
             }
+        } finally {
+            Dispatchers.resetMain()
+            mainDispatcher.close()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun nativeBackendSelectionSurvivesLeavingSettingsAndReopening() {
+        val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        Dispatchers.setMain(mainDispatcher)
+        try {
+            val stored = AtomicReference(TunBackend.HEV)
+            val model = SettingsViewModel(mock<Application>(), { true }, {}, stored.get()) { stored.set(it) }
+            model.setTunBackend(TunBackend.SING_NATIVE)
+            ViewModelStore().apply { put("settings", model); clear() }
+            runBlocking { withTimeout(5_000) { model.awaitTunBackendSave() } }
+            assertEquals(TunBackend.SING_NATIVE, stored.get())
+            val reopened = SettingsViewModel(mock<Application>(), { true }, {}, stored.get()) {}
+            assertEquals(TunBackend.SING_NATIVE, reopened.tunBackend.value)
         } finally {
             Dispatchers.resetMain()
             mainDispatcher.close()

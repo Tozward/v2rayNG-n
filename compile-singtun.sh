@@ -12,7 +12,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$NDK_HOME}"
 gomobile init
 mkdir -p "$repo_dir/V2rayNG/app/libs"
-gomobile bind -target=android -androidapi 24 -trimpath \
+gomobile bind -target=android -androidapi 24 -tags=with_sing_tun -trimpath \
   -ldflags='-s -w -buildid= -checklinkname=0' \
   -o "$repo_dir/V2rayNG/app/libs/libv2ray.aar" \
   . github.com/2dust/AndroidLibXrayLite
@@ -29,16 +29,17 @@ from zipfile import ZipFile, ZIP_DEFLATED
 # report only knows about JVM dependencies. This does not add runtime work.
 notices = []
 modules = subprocess.check_output(
-    ['go', 'list', '-deps', '-f', '{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}', '.'],
+    ['go', 'list', '-tags=with_sing_tun', '-deps', '-f',
+     '{{with .Module}}{{.Path}} {{.Version}}{{if .Replace}} => {{.Replace.Path}} {{.Replace.Version}}\t{{.Replace.Dir}}{{else}}\t{{.Dir}}{{end}}{{end}}', '.'],
     env={**os.environ, 'GOOS': 'android', 'GOARCH': 'arm64', 'CGO_ENABLED': '0'}, text=True,
 )
 for entry in sorted(set(modules.splitlines())):
     if not entry.strip():
         continue
-    module, version, directory = entry.split('\t', 2)
+    source, directory = entry.split('\t', 1)
     for notice in sorted(Path(directory).iterdir()):
         if notice.is_file() and notice.name.lower().startswith(('license', 'copying', 'notice')):
-            notices.append(f"{module} {version} / {notice.name}\n{notice.read_text()}")
+            notices.append(f"{source} / {notice.name}\n{notice.read_text()}")
 notices.append(Path(sys.argv[2]).read_text())
 go_root = subprocess.check_output(['go', 'env', 'GOROOT'], text=True).strip()
 notices.append('Go runtime\n' + Path(go_root, 'LICENSE').read_text())
