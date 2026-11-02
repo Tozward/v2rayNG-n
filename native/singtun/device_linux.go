@@ -6,7 +6,7 @@ import (
 )
 
 func openDevice(options tun.Options) (tun.Tun, error) {
-	fd, err := unix.FcntlInt(uintptr(options.FileDescriptor), unix.F_DUPFD_CLOEXEC, 0)
+	fd, err := unix.FcntlInt(uintptr(options.FileDescriptor), unix.F_DUPFD_CLOEXEC, 3)
 	if err != nil {
 		return nil, err
 	}

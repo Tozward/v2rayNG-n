@@ -84,7 +84,7 @@ func (h echoHandler) NewPacketConnectionEx(ctx context.Context, conn N.PacketCon
 	}
 }
 
-func echoSOCKS(t *testing.T) (N.Dialer, <-chan M.Socksaddr, int32) {
+func echoSOCKS(t *testing.T) (N.Dialer, <-chan M.Socksaddr, int32, func()) {
 	t.Helper()
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -111,16 +111,20 @@ func echoSOCKS(t *testing.T) (N.Dialer, <-chan M.Socksaddr, int32) {
 			}()
 		}
 	}()
-	t.Cleanup(func() {
-		cancel()
-		_ = listener.Close()
+	dropConnections := func() {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, conn := range connections {
 			_ = conn.Close()
 		}
+		connections = nil
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = listener.Close()
+		dropConnections()
 	})
-	return socks.NewClient(&localDialer{dialer: net.Dialer{Timeout: time.Second * 5}}, M.SocksaddrFromNet(listener.Addr()), socks.Version5, "user", "secret"), destinations, int32(listener.Addr().(*net.TCPAddr).Port)
+	return socks.NewClient(&localDialer{dialer: net.Dialer{Timeout: time.Second * 5}}, M.SocksaddrFromNet(listener.Addr()), socks.Version5, "user", "secret"), destinations, int32(listener.Addr().(*net.TCPAddr).Port), dropConnections
 }
 
 func memoryLink(t *testing.T, dialer N.Dialer) (*tun.Go, *Controller) {
@@ -160,7 +164,7 @@ func memoryLink(t *testing.T, dialer N.Dialer) (*tun.Go, *Controller) {
 }
 
 func TestTCPAndUDPThroughAuthenticatedSOCKS(t *testing.T) {
-	dialer, destinations, _ := echoSOCKS(t)
+	dialer, destinations, _, _ := echoSOCKS(t)
 	client, controller := memoryLink(t, dialer)
 	for _, pair := range [][2]string{{"10.10.14.1", "192.0.2.10:443"}, {"fc00::1", "[2001:db8::10]:53"}} {
 		source, destination := netip.MustParseAddr(pair[0]), netip.MustParseAddrPort(pair[1])

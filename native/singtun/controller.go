@@ -74,7 +74,9 @@ func (c *Controller) Start(fd, mtu, socksPort int32, ipv4, ipv6, username, passw
 	return nil
 }
 
-// ResetNetwork removes stale TCP/UDP state after Xray replaces its SOCKS listener.
+// ResetNetwork purges UDP mappings after Xray replaces its SOCKS listener.
+// TCP relays observe their old SOCKS connection closing; upstream's reset only
+// reclaims TCP buffers and deliberately does not terminate healthy TCP flows.
 func (c *Controller) ResetNetwork() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

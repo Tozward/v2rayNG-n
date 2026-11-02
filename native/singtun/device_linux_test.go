@@ -49,7 +49,7 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 	if err = netlink.LinkSetUp(link); err != nil {
 		t.Fatal(err)
 	}
-	_, _, port := echoSOCKS(t)
+	_, _, port, dropConnections := echoSOCKS(t)
 	controller := NewController()
 	defer controller.Stop()
 	start := func() {
@@ -78,6 +78,8 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 		t.Fatal("duplicate native start accepted")
 	}
 	conn := transfer()
+	// Simulate Xray replacing its listener/connections before resetting the backend.
+	dropConnections()
 	controller.ResetNetwork()
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	if _, err := conn.Read(make([]byte, 1)); err == nil {
@@ -94,15 +96,19 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = udp.SetDeadline(time.Now().Add(time.Second * 5))
 	payload := bytes.Repeat([]byte("dns"), 400)
-	if _, err = udp.Write(payload); err != nil {
-		t.Fatal(err)
-	}
-	actual := make([]byte, len(payload)+1)
-	n, err := udp.Read(actual)
-	if err != nil || !bytes.Equal(actual[:n], payload) {
-		t.Fatalf("kernel UDP: %v", err)
+	for attempt := 0; attempt < 2; attempt++ {
+		_ = udp.SetDeadline(time.Now().Add(time.Second * 5))
+		if _, err = udp.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+		actual := make([]byte, len(payload)+1)
+		n, err := udp.Read(actual)
+		if err != nil || !bytes.Equal(actual[:n], payload) {
+			t.Fatalf("kernel UDP after %d resets: %v", attempt, err)
+		}
+		dropConnections()
+		controller.ResetNetwork()
 	}
 	_ = udp.Close()
 	if err = controller.Stop(); err != nil {

@@ -17,12 +17,23 @@ gomobile bind -target=android -androidapi 24 -trimpath \
   -o "$repo_dir/V2rayNG/app/libs/libv2ray.aar" \
   . github.com/2dust/AndroidLibXrayLite
 
-python3 - "$repo_dir/V2rayNG/app/libs/libv2ray.aar" <<'PY'
+python3 - "$repo_dir/V2rayNG/app/libs/libv2ray.aar" "$repo_dir/LICENSE" <<'PY'
 import io
+import json
+from pathlib import Path
+import subprocess
 import sys
-from zipfile import ZipFile
+from zipfile import ZipFile, ZIP_DEFLATED
 
-with ZipFile(sys.argv[1]) as aar:
+# Include native dependency notices in the APK as AAR assets; the Gradle license
+# report only knows about JVM dependencies. This does not add runtime work.
+notices = []
+for module in ('github.com/sagernet/sing', 'github.com/sagernet/sing-tun'):
+    info = json.loads(subprocess.check_output(['go', 'list', '-m', '-json', module]))
+    notices.append(f"{module} {info['Version']}\n{Path(info['Dir'], 'LICENSE').read_text()}")
+notices.append(Path(sys.argv[2]).read_text())
+with ZipFile(sys.argv[1], 'a', compression=ZIP_DEFLATED) as aar:
+    aar.writestr('assets/sing-tun-LICENSE.txt', '\n\n'.join(notices))
     with ZipFile(io.BytesIO(aar.read('classes.jar'))) as classes:
         for name in ('libv2ray/CoreController.class', 'singtun/Controller.class'):
             assert name in classes.namelist(), f'Missing Java binding: {name}'

@@ -19,6 +19,7 @@ Audited source:
 
 The SagerNet libraries use GPLv3, compatible with this GPLv3 project. Their
 module versions and checksums are pinned in `native/singtun/go.mod` and `go.sum`.
+The new libraries' copyright notices and the GPLv3 text are bundled as an APK asset.
 The 1.15 reference is an alpha release. Upstream performance claims are not
 evidence that this Android integration outperforms HEV or consumes less energy.
 
@@ -34,6 +35,10 @@ system/mixed/gVisor stacks and does not enable the `with_gvisor` build tag.
 Xray's own existing dependencies are retained. Go module checksums include
 upstream optional/test dependencies; a module's presence does not mean that its
 code or background workers run in the APK.
+An Android/arm64 package dependency listing contains neither `sagernet/gvisor`
+nor `sagernet/sing-box`. Shared Go module selection raises `x/exp` (the existing
+Xray path uses its `constraints` package) and some tool-only dependencies; it
+also selects `x/time` 0.15, which is not imported by the Android package graph.
 
 The SOCKS bridge deliberately retains Xray's inbound metadata, FakeDNS,
 sniffing, DNS routing, and outbound policy. It adds loopback socket/copy costs;

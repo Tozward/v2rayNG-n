@@ -89,7 +89,7 @@ jobs:
 
     - name: Restore integrated core
       id: cache-integrated-core
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: V2rayNG/app/libs/libv2ray.aar
         key: sing-core-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/AndroidLibXrayLite/HEAD', 'AndroidLibXrayLite/go.mod', 'native/singtun/**', 'compile-singtun.sh') }}
@@ -97,6 +97,13 @@ jobs:
     - name: Build integrated core
       if: steps.cache-integrated-core.outputs.cache-hit != 'true'
       run: bash compile-singtun.sh
+
+    - name: Save integrated core
+      if: steps.cache-integrated-core.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: V2rayNG/app/libs/libv2ray.aar
+        key: ${{ steps.cache-integrated-core.outputs.cache-primary-key }}
 
     - name: Setup Java
       uses: actions/setup-java@v6.1.0
