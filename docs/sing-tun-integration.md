@@ -122,11 +122,12 @@ session or forwarding pipe in this path and no end-to-end zero-copy claim.
 `GoConn.Splice` and the directional APIs are engine-owned socket I/O, not Linux
 `splice(2)`. Existing HEV and SOCKS-backed Sing choices remain available for
 comparison, including Xray's existing TCP kernel-splice path. The
-[matched Linux measurements](https://github.com/Tozward/Xray-core-socks-uds/blob/78b38f0a/docs/native-sing-tun.md#measured-comparison)
-show a throughput/CPU/allocation tradeoff. They do not establish an Android
-speed or energy improvement, or a universal advantage for bidirectional handoff.
-Compare raw/Vision, encrypted
-and multiplexed traffic separately on the target Android device.
+[matched Linux measurements](https://github.com/Tozward/Xray-core-socks-uds/blob/43050801/docs/native-sing-tun.md#verified-bidirectional-handoff-and-local-aggregation)
+cover 51 cases and 153 uninstrumented rows. At matched MTU9000, native
+bidirectional handoff with local aggregation improves duplex throughput and CPU
+against HEV in that run. Vision download alone is close to SOCKS+jumbo and its CPU
+is slightly higher than HEV. These are Linux controls; Android energy and WAN
+performance require target-device measurements.
 
 In a custom VPN configuration, one explicit `tun` or `sing-tun` inbound takes
 precedence over the saved backend and is preserved. If neither exists, a core
@@ -141,7 +142,7 @@ replacement are pinned in `native/singtun/go.mod`/`go.sum`. Go does not inherit 
 dependency module's replacements, so the Android root module declares both
 forks. The APK contains GPL-licensed SagerNet code and its notices whether either
 experimental choice is selected. See the core fork's
-[native integration guide](https://github.com/Tozward/Xray-core-socks-uds/blob/eb5310947c46520eeba7981b8711feb5f8ed9b1a/docs/native-sing-tun.md)
+[native integration guide](https://github.com/Tozward/Xray-core-socks-uds/blob/43050801/docs/native-sing-tun.md)
 for the dependency patch ledger, socket ownership and update procedure.
 
 ## Lifecycle and packaging
@@ -189,3 +190,22 @@ Android service/UI runtime checks and comparative throughput, CPU, wakeup,
 memory, and energy measurements must be reported separately from build checks.
 Keep the backend experimental until those checks pass. Do not infer energy
 savings from a successful transfer or synthetic throughput benchmark.
+
+## Candidate .2 verification
+
+Candidate `2.3.15.3-native-sing-tun.2` / versionCode766 is built from
+`04845fb7a4a1d86510cc92fc8aee8cfeff0599d3` in
+[run 41449202010](https://github.com/Tozward/v2rayNG-n/actions/runs/41449202010).
+Both distributions pass unit tests, Kotlin compilation, assembly and lint;
+the combined AAR and signed APKs include all four declared ABIs. Android API24
+and API35 emulator checks pass TCP/UDP VPN traffic at MTU1280/1500/9000.
+The Playstore arm64 APK is 32933998 bytes, 26663 bytes larger than candidate .1.
+Its SHA256 is `8c11616c9fb5b2fcc94fbddc8247e86c09f4887918a52b87f75d62c0ca7aa5e4`.
+
+The runtime core pin remains `eb5310947c46520eeba7981b8711feb5f8ed9b1a`.
+Core verification `cdd71da026a0deb6ef0d5130d266a8218979c724` adds only test fixes,
+with identical production source; documentation records the resulting evidence.
+No AAR/APK rebuild is needed for those test/documentation-only changes.
+Xiaomi 14 Pro Android16 throughput and battery use have not been measured by
+this work. Existing backend preferences are retained; select Sing native TUN
+and reconnect the VPN to exercise the new path.
