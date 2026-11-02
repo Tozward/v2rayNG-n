@@ -26,12 +26,13 @@ adb shell run-as com.v2ray.ang mkdir -p cache/updates
 adb shell run-as com.v2ray.ang cp "$APK_SOURCE" cache/updates/update-installed.apk
 adb shell run-as com.v2ray.ang touch cache/updates/pending-in-flight.apk cache/updates/update-unknown.apk cache/unrelated-cache
 adb install -r $(find emulator-tests -name '*x86_64.apk')
+# Android24 has no standalone test executable; invoke the shell builtin.
 for ATTEMPT in $(seq 1 60); do
-  if adb shell run-as com.v2ray.ang test ! -e cache/updates/update-installed.apk; then break; fi
+  if adb shell 'run-as com.v2ray.ang /system/bin/sh -c "test ! -e cache/updates/update-installed.apk"'; then break; fi
   sleep 0.25
 done
-adb shell run-as com.v2ray.ang test ! -e cache/updates/update-installed.apk
-adb shell run-as com.v2ray.ang test -e cache/updates/pending-in-flight.apk
-adb shell run-as com.v2ray.ang test -e cache/updates/update-unknown.apk
-adb shell run-as com.v2ray.ang test -e cache/unrelated-cache
+adb shell 'run-as com.v2ray.ang /system/bin/sh -c "test ! -e cache/updates/update-installed.apk"'
+adb shell 'run-as com.v2ray.ang /system/bin/sh -c "test -e cache/updates/pending-in-flight.apk"'
+adb shell 'run-as com.v2ray.ang /system/bin/sh -c "test -e cache/updates/update-unknown.apk"'
+adb shell 'run-as com.v2ray.ang /system/bin/sh -c "test -e cache/unrelated-cache"'
 echo 'UPDATE_CACHE_REPLACEMENT passed' | tee "$RUNNER_TEMP/update-cache-replacement.txt"
