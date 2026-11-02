@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/netip"
 	"sync"
+	"syscall"
 	"time"
 
 	tun "github.com/sagernet/sing-tun"
@@ -195,11 +197,26 @@ func (h *forwarder) NewConnectionEx(ctx context.Context, conn net.Conn, _, desti
 		}
 		return
 	}
-	defer h.wg.Done()
+	spliced := false
+	defer func() {
+		if !spliced {
+			h.wg.Done()
+		}
+	}()
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	remote, err := h.client.DialContext(dialCtx, N.NetworkTCP, destination)
 	cancel()
 	if err == nil {
+		if source, ok := conn.(*tun.GoConn); ok {
+			if socket, ok := remote.(*net.TCPConn); ok {
+				spliced = source.Splice(&spliceSocket{Conn: socket, original: socket, closer: socket}, tun.SpliceOptions{
+					OnClose: h.finishSplice(conn, onClose),
+				})
+				if spliced {
+					return
+				}
+			}
+		}
 		err = bufio.CopyConn(ctx, conn, remote)
 	} else {
 		_ = conn.Close()
@@ -217,11 +234,31 @@ func (h *forwarder) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn
 		}
 		return
 	}
-	defer h.wg.Done()
+	spliced := false
+	defer func() {
+		if !spliced {
+			h.wg.Done()
+		}
+	}()
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	remote, err := h.client.ListenPacket(dialCtx, destination)
 	cancel()
 	if err == nil {
+		if source, ok := conn.(*tun.UDPNatConn); ok {
+			upstream, offload := N.UnwrapPacketOffload(remote)
+			socket, isSocket := upstream.(syscall.Conn)
+			original, isCloser := upstream.(io.Closer)
+			if isSocket && isCloser && offload != nil {
+				spliced = source.Splice(&spliceSocket{Conn: socket, original: original, closer: remote}, tun.SplicePacketOptions{
+					SpliceOptions: tun.SpliceOptions{OnClose: h.finishSplice(conn, onClose)},
+					Timeout:       60 * time.Second, Offload: offload,
+					FrontHeadroom: N.CalculateFrontHeadroom(remote), RearHeadroom: N.CalculateRearHeadroom(remote),
+				})
+				if spliced {
+					return
+				}
+			}
+		}
 		err = bufio.CopyPacketConn(ctx, conn, bufio.NewPacketConn(remote))
 	} else {
 		_ = conn.Close()
@@ -229,6 +266,60 @@ func (h *forwarder) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn
 	if onClose != nil {
 		onClose(err)
 	}
+}
+
+func (h *forwarder) finishSplice(conn io.Closer, onClose N.CloseHandlerFunc) N.CloseHandlerFunc {
+	return func(err error) {
+		defer h.wg.Done()
+		_ = conn.Close()
+		if onClose != nil {
+			onClose(err)
+		}
+	}
+}
+
+// sing-tun takes ownership of a duplicate socket when Splice succeeds. Route
+// Close to that owner until Detach, so shutdown never leaves its duplicate alive.
+type spliceSocket struct {
+	syscall.Conn
+	original   io.Closer
+	closer     io.Closer
+	mu         sync.Mutex
+	attachment io.Closer
+	closed     bool
+}
+
+func (s *spliceSocket) Attach(owner io.Closer) (io.Closer, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.attachment != nil {
+		return nil, false
+	}
+	s.attachment = owner
+	// Only the raw UDP socket is replaced. Its SOCKS TCP association must remain
+	// alive until the entire flow closes, when closer releases both resources.
+	return s.original, true
+}
+
+func (s *spliceSocket) Detach() {
+	s.mu.Lock()
+	s.attachment = nil
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		_ = s.closer.Close()
+	}
+}
+
+func (s *spliceSocket) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	owner := s.attachment
+	s.mu.Unlock()
+	if owner != nil {
+		return owner.Close()
+	}
+	return s.closer.Close()
 }
 
 // Keep the packet hot path free of Java callbacks and per-connection logging.

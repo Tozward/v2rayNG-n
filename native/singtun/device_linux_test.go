@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,11 +75,29 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 		}
 		return conn
 	}
+	assertSplice := func(handler string) {
+		t.Helper()
+		// Successful splice returns the handler instead of leaving a pair of
+		// copy goroutines parked for every live flow.
+		deadline := time.Now().Add(time.Second * 2)
+		for {
+			traces := make([]byte, 1<<20)
+			n := runtime.Stack(traces, true)
+			if !strings.Contains(string(traces[:n]), "(*forwarder)."+handler) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("kernel flow did not splice: %s", handler)
+			}
+			time.Sleep(time.Millisecond * 10)
+		}
+	}
 	start()
 	if err := controller.Start(int32(fd), 1500, port, "198.19.254.1/30", "", "user", "secret"); err == nil {
 		t.Fatal("duplicate native start accepted")
 	}
 	conn := transfer()
+	assertSplice("NewConnectionEx")
 	// Simulate Xray replacing its listener/connections before resetting the backend.
 	dropConnections()
 	controller.ResetNetwork()
@@ -107,6 +127,7 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 		if err != nil || !bytes.Equal(actual[:n], payload) {
 			t.Fatalf("kernel UDP after %d resets: %v", attempt, err)
 		}
+		assertSplice("NewPacketConnectionEx")
 		dropConnections()
 		controller.ResetNetwork()
 	}

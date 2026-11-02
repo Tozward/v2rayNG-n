@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.lifecycle.ViewModelStore
 import com.tencent.mmkv.MMKV
 import com.v2ray.ang.enums.TunBackend
+import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -41,6 +42,7 @@ class SettingsViewModelTest {
         try {
             mockStatic(MMKV::class.java).use { staticMock ->
                 staticMock.`when`<MMKV> { MMKV.mmkvWithID("SETTING", MMKV.MULTI_PROCESS_MODE) }.thenReturn(settings)
+                LogUtil.refreshLogLevel()
                 val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.HEV) {
                     throw IllegalStateException("write failed")
                 }

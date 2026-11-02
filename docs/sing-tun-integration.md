@@ -43,6 +43,11 @@ also selects `x/time` 0.15, which is not imported by the Android package graph.
 The SOCKS bridge deliberately retains Xray's inbound metadata, FakeDNS,
 sniffing, DNS routing, and outbound policy. It adds loopback socket/copy costs;
 calling Xray's dispatcher directly would require reproducing those contracts.
+After the SOCKS handshake, TCP sockets use `GoConn.Splice` and UDP sockets use
+`UDPNatConn.Splice` with sing's SOCKS packet offload codec. This hands socket I/O
+to the new stack's event loop instead of parking a pair of copying goroutines
+per flow. The UDP association's control TCP connection stays alive until that
+flow closes. Unsupported sockets/platforms fall back to buffered forwarding.
 The adapter's dialer accepts loopback addresses only. Remote destinations occur
 only in SOCKS requests. TCP/UDP are supported; ICMP forwarding is not supplied
 by SOCKS5, as with the existing HEV path.
