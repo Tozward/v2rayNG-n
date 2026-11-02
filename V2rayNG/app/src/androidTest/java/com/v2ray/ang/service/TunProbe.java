@@ -45,8 +45,20 @@ public final class TunProbe {
                 writerThread.start();
                 received = new byte[payload.length];
                 try {
-                    new DataInputStream(socket.getInputStream()).readFully(received);
-                    writer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+                    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                    DataInputStream input = new DataInputStream(socket.getInputStream());
+                    int offset = 0;
+                    while (offset < received.length) {
+                        long remaining = deadline - System.nanoTime();
+                        if (remaining <= 0) throw new java.net.SocketTimeoutException("Probe deadline");
+                        socket.setSoTimeout((int) Math.max(1, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining)));
+                        int count = input.read(received, offset, received.length - offset);
+                        if (count < 0) throw new java.io.EOFException("Incomplete probe echo");
+                        offset += count;
+                    }
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) throw new java.net.SocketTimeoutException("Probe deadline");
+                    writer.get(remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
                 } finally {
                     socket.close();
                     writerThread.join(5000);
