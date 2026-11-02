@@ -19,7 +19,7 @@ gomobile bind -target=android -androidapi 24 -trimpath \
 
 python3 - "$repo_dir/V2rayNG/app/libs/libv2ray.aar" "$repo_dir/LICENSE" <<'PY'
 import io
-import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -28,10 +28,20 @@ from zipfile import ZipFile, ZIP_DEFLATED
 # Include native dependency notices in the APK as AAR assets; the Gradle license
 # report only knows about JVM dependencies. This does not add runtime work.
 notices = []
-for module in ('github.com/sagernet/sing', 'github.com/sagernet/sing-tun'):
-    info = json.loads(subprocess.check_output(['go', 'list', '-m', '-json', module]))
-    notices.append(f"{module} {info['Version']}\n{Path(info['Dir'], 'LICENSE').read_text()}")
+modules = subprocess.check_output(
+    ['go', 'list', '-deps', '-f', '{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}', '.'],
+    env={**os.environ, 'GOOS': 'android', 'GOARCH': 'arm64', 'CGO_ENABLED': '0'}, text=True,
+)
+for entry in sorted(set(modules.splitlines())):
+    if not entry.strip():
+        continue
+    module, version, directory = entry.split('\t', 2)
+    for notice in sorted(Path(directory).iterdir()):
+        if notice.is_file() and notice.name.lower().startswith(('license', 'copying', 'notice')):
+            notices.append(f"{module} {version} / {notice.name}\n{notice.read_text()}")
 notices.append(Path(sys.argv[2]).read_text())
+go_root = subprocess.check_output(['go', 'env', 'GOROOT'], text=True).strip()
+notices.append('Go runtime\n' + Path(go_root, 'LICENSE').read_text())
 with ZipFile(sys.argv[1], 'a', compression=ZIP_DEFLATED) as aar:
     aar.writestr('assets/sing-tun-LICENSE.txt', '\n\n'.join(notices))
     with ZipFile(io.BytesIO(aar.read('classes.jar'))) as classes:

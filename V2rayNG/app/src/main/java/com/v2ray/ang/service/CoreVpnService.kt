@@ -87,8 +87,12 @@ class CoreVpnService : VpnService(), ServiceControl {
             if (lifecycle.shouldReuseRunningTunnel(
                     tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
                 )) return START_STICKY
-            // A readiness command can be delivered after a stop destroyed its originating instance.
-            if (setupJob?.isActive != true) stopAllService()
+            // Android can deliver an old readiness command to a new service instance.
+            // Use its startId when no setup/resources exist, so it cannot invalidate
+            // a newer start already queued by Android. Retain this while READY is asynchronous.
+            if (!lifecycle.isStopping() && setupJob?.isActive != true) {
+                if (!tunnelReady) stopSelf(startId) else stopAllService()
+            }
             return START_NOT_STICKY
         }
         if (setupJob?.isActive == true) return START_NOT_STICKY

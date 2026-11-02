@@ -74,6 +74,7 @@ jobs:
         cp -r ${{ github.workspace }}/libs ${{ github.workspace }}/V2rayNG/app
 
     - name: Setup Go
+      id: go
       uses: actions/setup-go@v6
       with:
         go-version-file: native/singtun/go.mod
@@ -92,7 +93,7 @@ jobs:
       uses: actions/cache/restore@v6
       with:
         path: V2rayNG/app/libs/libv2ray.aar
-        key: sing-core-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/AndroidLibXrayLite/HEAD', 'AndroidLibXrayLite/go.mod', 'native/singtun/**', 'compile-singtun.sh') }}
+        key: sing-core-${{ runner.os }}-${{ env.NDK_HOME }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('.git/modules/AndroidLibXrayLite/HEAD', 'AndroidLibXrayLite/go.mod', 'native/singtun/go.mod', 'native/singtun/go.sum', 'native/singtun/controller.go', 'native/singtun/core_android.go', 'native/singtun/device_linux.go', 'native/singtun/device_other.go', 'compile-singtun.sh', 'LICENSE') }}
 
     - name: Build integrated core
       if: steps.cache-integrated-core.outputs.cache-hit != 'true'

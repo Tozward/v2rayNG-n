@@ -117,7 +117,7 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := bytes.Repeat([]byte("dns"), 400)
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < 3; attempt++ {
 		_ = udp.SetDeadline(time.Now().Add(time.Second * 5))
 		if _, err = udp.Write(payload); err != nil {
 			t.Fatal(err)
@@ -128,12 +128,20 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 			t.Fatalf("kernel UDP after %d resets: %v", attempt, err)
 		}
 		assertSplice("NewPacketConnectionEx")
-		dropConnections()
-		controller.ResetNetwork()
+		if attempt < 2 {
+			dropConnections()
+			controller.ResetNetwork()
+		}
 	}
 	_ = udp.Close()
+	live := transfer()
+	defer live.Close()
 	if err = controller.Stop(); err != nil {
 		t.Fatal(err)
+	}
+	_ = live.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err = live.Read(make([]byte, 1)); err == nil {
+		t.Fatal("TCP socket survived controller stop")
 	}
 	if _, err = unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != nil {
 		t.Fatalf("caller TUN fd closed: %v", err)
