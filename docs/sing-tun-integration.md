@@ -30,10 +30,10 @@ Audited source:
 | --- | --- |
 | sing-box reference | `v1.15.0-alpha.13`, `824dbcfb4dd0a95921840b1737b950cde590241e` |
 | sing-tun upstream | `611d83b7a57b4719be45581eb674942ff561de6c` |
-| sing-tun integration fork | `3855ec8dcf9cb1eb3036d334b1ecd5be89b14334` |
+| sing-tun integration fork | `395f9425830a9991450bd0b26b54ecd5be80e647` |
 | sing | `03a6cce64bf744023af9e2691fb11afd405b9061` |
 | AndroidLibXrayLite | unchanged gitlink `2ffe5f794a32ba15b122e177b5acffc6f11c4959` |
-| Xray-core integration fork | `eb5310947c46520eeba7981b8711feb5f8ed9b1a` |
+| Xray-core integration fork | `f9a1f8e4a9cdf7dc0a939b7732f339550bc8e0cb` |
 | Xray upstream baseline for the native integration | `7c8dbcb4bbec7f80d16070069e0b2f7bf3aca62c` |
 
 The SagerNet libraries use GPLv3, compatible with this GPLv3 project. Their
@@ -209,3 +209,21 @@ No AAR/APK rebuild is needed for those test/documentation-only changes.
 Xiaomi 14 Pro Android16 throughput and battery use have not been measured by
 this work. Existing backend preferences are retained; select Sing native TUN
 and reconnect the VPN to exercise the new path.
+
+## Candidate .3 audit corrections
+
+Candidate `2.3.15.3-native-sing-tun.3` / versionCode767 includes two re-audit
+corrections before production testing. New native upload handoff rejects TCP
+write masks and unknown transports, preserving the ordinary writer's behavior;
+a real fragment mask configured for packets 2-20 reproduces the former bypass.
+The dependency also cancels and reclaims a blocked directional upload when
+`CloseRead` follows native FIN/ACK completion (ST-API-004). Android's existing
+context cancellation uses `Close`, which already handles the whole stream.
+Existing Vision readiness, download unwrapping, backend preferences, GUI MTU
+and TCP kernel-splice behavior are unchanged by these corrections.
+
+The core runtime pin is `f9a1f8e4a9cdf7dc0a939b7732f339550bc8e0cb`; dependency pin
+`395f9425830a9991450bd0b26b54ecd5be80e647`. The core benchmark now additionally
+compares freedom with the same verified application TLS1.3 fixture as Vision.
+The historical plain-TCP freedom column is not a matched estimate of Vision's
+protocol or native-integration overhead.
