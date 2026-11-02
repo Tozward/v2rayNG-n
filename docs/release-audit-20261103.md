@@ -82,7 +82,7 @@ The release build verifies both distributions, all four ABIs, unit/Kotlin checks
 assembly, lint, native notices, focused native races and descriptors. Disposable
 Android24/35 emulators exercise VPN backends and settings touch/keyboard/D-pad
 selection, legacy decoding and persistence. A separate opt-in arm64 audit APK has
-application ID `com.v2ray.ang.audit`; it is explicitly excluded from release assets.
+application ID `com.v2ray.ang.audit.r<Actions run ID>`; it is explicitly excluded from release assets.
 It refuses to modify the normal application's storage or run probes with the
 wrong UID. Its VPN allowlist includes only shell UID, and its SOCKS fixture binds
 loopback and echoes only a reserved synthetic endpoint without dialing it.
@@ -117,3 +117,111 @@ the pre-existing restart/stop broadcast gap and notification polling when a core
 starts/reloads after the screen is already off. Their source comparison shows
 they were not introduced by this integration. The audit does not claim that
 unmodified upstream code or all possible device/network conditions are defect-free.
+
+## Final validation provenance
+
+Production application sources have not changed since `719aa6deff901432f43d620a05317ad52f0c866b`.
+Subsequent commits repair test synchronization, test-process execution, CI compatibility and artifact
+isolation only.
+The final compiled source is `06b70872ee92f3457e23b537c85735d39ba87497`; its [release validation
+run](https://github.com/Tozward/v2rayNG-n/actions/runs/41546863209) includes both distributions and
+all declared ABIs. The complete run succeeds, including its build and both emulator jobs.
+
+The earlier accessibility-node clicker could target Compose bounds outside a scroll viewport. It was
+replaced with the project's fixed-BOM official Compose test APIs, including real touch injection,
+semantic role/selection checks and real keyboard/D-pad key events. The test dependency is
+`androidTestImplementation` only. The physical audit uses the official API31+ shell stdin/stdout
+interface: `executeShellCommand(String)` does not parse shell expressions. Earlier ART probe
+terminations and the broken shell wrapper produced no valid physical application measurements and
+are retained locally as failed test-tool attempts. They are not product passes or proof of a TUN
+regression.
+
+Each physical audit uses a reserved, run-specific package to avoid different hosted runners' debug
+certificates colliding. Earlier scratch packages are stopped and disabled, their VPN app-op reset,
+and their files/data retained. No normal application profile is read or replaced by this procedure.
+The fixed-target Go probe runs as UID2000; it has no arbitrary URL or node selection. The private
+loopback fixture accepts only the reserved synthetic destination and never forwards to the Internet.
+
+The [core
+audit](https://github.com/Tozward/Xray-core-socks-uds/blob/fea2b64546ac918637c0a03b947b8c6ce9459e73/docs/release-audit-20261103.md)
+records the actual platform checks, native ownership/Vision review, known-vulnerability scan limits
+and all matched physical-kernel performance medians. The [dependency patch
+ledger](https://github.com/Tozward/sing-tun/blob/2c2f8b289bf652b432506e0a6fe50e6ac6bd1fa2/docs/xray-integration-patches.md)
+records separate ST-FD/ST-API/ST-PERF patches and their upstream-first retirement criteria. The
+Android integration remains one combined Go runtime rather than a complete sing-box core.
+
+The preceding `f408d0e6` build passed all 212 unit tests in each distribution and both lint tasks.
+Its API24 emulator passed the TUN and typed UI tests; the subsequent cache shell check lost its
+variable because the emulator action starts each inline line in a separate shell. That check now
+runs from `tools/ci/android_backend_smoke.sh` in one shell, with an explicit disposable-emulator
+guard. The preceding API35 task failed downloading Google's emulator archive before running any
+application check. Those run failures do not waive the final validation gate. The physical audit APK
+is from the successful isolated-package job in that preceding run; production and AndroidTest
+sources are identical to the final run.
+
+The final ARM64 release library has pinned Go1.27.3/Android/arm64/CGO/`with_sing_tun` metadata and
+the audited Xray/sing-tun replacements. Gradle removes non-loadable ELF metadata: the packaged `.so`
+hash differs from the AAR, while all 28 allocated ELF sections' contents, addresses, sizes and flags
+are identical. The HEV library hash matches the library used in physical-kernel comparisons. Runtime
+notices are included. The local verification JSON records both binary hashes and section-level
+equivalence.
+
+### Locked physical application results
+
+The isolated Android16/arm64 audit on Xiaomi 14 Pro passes all assertions in 590.4 seconds:
+Xray/HEV/native at MTU1280/9000/1500, TCP/UDP/256KiB payload integrity, duplicate starts, restart
+and stop, invalid setup recovery, stop during foreground setup, legacy `sing` decoding, and
+proxy-only actual listener port/authentication/recovery. The test VPN is stopped; scratch packages
+are disabled, their VPN app-op reset, the verified loopback fixture stopped, and no UID0 test policy
+remains. Files/data are retained.
+
+The following are one sequential framework-integration measurement per backend at MTU1500 against a
+private SOCKS echo, without a cryptographic outbound. Latency uses 500 samples after 20 warmups;
+bulk is aggregate bidirectional echo over approximately three seconds. These numbers do not measure
+Vision handoff, Internet throughput or a sustained-flow ceiling.
+
+| Backend | P50 latency ms | P95 latency ms | Aggregate MB/s | Idle sampled seconds | Daemon CPU seconds | Idle FD first/last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| xray | 0.676 | 0.979 | 107.90 | 157.82 | 0.17 | 141/141 |
+| hev | 0.759 | 0.965 | 123.43 | 163.11 | 0.09 | 146/148 |
+| sing_native | 0.450 | 0.723 | 111.14 | 157.97 | 0.05 | 145/145 |
+
+Each requested idle interval is 180 seconds with speed notification disabled; the table excludes the
+settling interval and uses actual first/last sample timestamps. CPU is the daemon's process-wide
+user+system time at 100Hz; ADB samples every five seconds. Raw context-switch counters describe the
+main thread only, not device wakeups. The combined runtime is reused between backends, so sequential
+RSS values are not fresh-start memory comparisons. Native RSS stays at 224684KiB and FDs at145
+during its sampled idle window; this finite observation does not establish absence of every
+long-lived leak.
+
+The phone remains locked/Dozing and charging. Android returns zero supported hardware power
+monitors. No device governor, wake/suspend policy, battery statistics, personal profiles or traffic
+history is changed/read. These CPU/latency observations are not electrical-energy or battery-life
+measurements. Physical application root mode, real-node WAN/mobile handover and a multi-hour battery
+discharge/production soak remain **Not run**; the first would require an additional root-app grant
+and global routing changes, and the latter need a separate controlled network/battery experiment.
+
+The intermediate `b04cc849` run passes API35 completely, including actual package replacement and
+cache retention. API24 passes both instrumentation tests but cannot exec a standalone `test` binary.
+The final CI-only correction invokes that POSIX builtin through `/system/bin/sh`; it neither changes
+the application nor bypasses an assertion. Both intermediate release APKs' DEX, native libraries and
+runtime assets compare byte-identical. These intermediate runs are not publication sources.
+
+### Publication gate passed
+
+Actions 41546863209 completes successfully at source `06b70872`. Both distributions pass 212 tests with
+zero failures, errors or skips, compile/debug assembly and lint; all four native ABIs and ten signed
+release APKs are produced. API24 and API35 each pass both TUN/UI instrumentation tests, real
+touch/Enter/Space/D-pad selection and reopened persistence, plus actual same-package installation
+replacement: installed-version APK cache is reclaimed, while pending, unknown and unrelated cache
+files remain. No test was disabled to obtain this result.
+
+The final ARM64 release APK's DEX, native libraries and runtime assets are byte-identical to the
+corresponding earlier audited signed build (28 entries), and production/AndroidTest sources match
+the isolated physical audit's source. Its SHA256 is
+`a8abf54457badb379e0d88732d0a64280917ce15dd155d11e198e3da149c434e`. The formal release is
+`v2.3.15.4`; publication reuses the successful run's signed APKs without recompilation.
+Audit/emulator APKs are explicitly excluded. The standalone core is
+[v26.10.31-native-tun.1](https://github.com/Tozward/Xray-core-socks-uds/releases/tag/v26.10.31-native-tun.1).
+Local raw reports and verification JSON are retained under
+`artifacts/native-sing-tun/final-release/`.
