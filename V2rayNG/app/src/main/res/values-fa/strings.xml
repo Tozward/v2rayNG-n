@@ -579,7 +579,7 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (آزمایشی)</string>
-    <string name="tun_backend_sing_native">Sing TUN بومی (آزمایشی)</string>
+    <string name="tun_backend_sing_native">Sing TUN بومی</string>
     <string name="error_tun_config_invalid">پیکربندی VPN TUN نامعتبر است. یک آرایهٔ inbounds با حداکثر یک ورودی tun یا sing-tun و تنها یک فیلد protocol برای هر ورودی مشخص کنید.</string>
     <string name="error_tun_backend_restart_required">برای تغییر موتور تونل، VPN را متوقف و دوباره راه‌اندازی کنید.</string>
     <string name="error_tun_vpn_mode_required">Sing TUN بومی به حالت VPN با حالت روت غیرفعال نیاز دارد.</string>

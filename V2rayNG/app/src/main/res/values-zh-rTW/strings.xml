@@ -577,7 +577,7 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN（實驗性）</string>
-    <string name="tun_backend_sing_native">Sing 原生 TUN（實驗性）</string>
+    <string name="tun_backend_sing_native">Sing 原生 TUN</string>
     <string name="error_tun_config_invalid">VPN TUN 設定無效。只能有一個 inbounds 陣列，最多包含一個 tun 或 sing-tun 入站，且每個入站只能有一個 protocol 欄位。</string>
     <string name="error_tun_backend_restart_required">請停止並重新啟動 VPN 以變更通道引擎。</string>
     <string name="error_tun_vpn_mode_required">Sing 原生 TUN 需要使用 VPN 模式並關閉 Root 模式。</string>

@@ -4,6 +4,7 @@ import android.content.Context
 import android.text.TextUtils
 import androidx.annotation.StringRes
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
@@ -583,6 +584,64 @@ object CoreConfigManager {
             R.string.error_tun_backend_restart_required, "Restart the VPN service to change the TUN backend"
         )
         return backend
+    }
+
+    /** The app downloads through IPv4 loopback HTTP, including Xray's mixed SOCKS listener. */
+    internal fun runningHttpProxyPort(
+        content: String,
+        preferredPort: Int,
+        username: String?,
+        password: String?,
+        mixedSocks: Boolean
+    ): Int? {
+        val json = JsonUtil.parseString(content) ?: return null
+        val inboundFields = json.entrySet().filter { it.key.equals("inbounds", ignoreCase = true) }
+        val inbounds = inboundFields.singleOrNull()?.value?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        fun JsonObject.field(name: String): JsonElement? = entrySet().singleOrNull { it.key.equals(name, ignoreCase = true) }?.value
+        fun JsonElement?.text(): String? = this?.takeIf { it.isJsonPrimitive }?.asString
+        fun JsonObject.unambiguous(): Boolean = keySet().map { it.lowercase(java.util.Locale.ROOT) }.distinct().size == size()
+        val ports = inbounds.mapNotNull { entry ->
+            val inbound = entry.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            // Unlike Go's case-insensitive decoder, ambiguous fields cannot establish
+            // a unique endpoint here. Do not guess an unrelated configured port.
+            if (!inbound.unambiguous()) return@mapNotNull null
+            val protocol = inbound.field("protocol").text()
+            if (protocol != "http" && !(mixedSocks && protocol == "socks")) return@mapNotNull null
+            val listen = inbound.field("listen").text()
+            if (listen != null && listen != AppConfig.LOOPBACK && listen != "0.0.0.0") return@mapNotNull null
+            val port = inbound.field("port").text()?.toIntOrNull()
+                ?.takeIf { it in 1..65535 } ?: return@mapNotNull null
+            // HTTP clients cannot speak TLS or a transport header before CONNECT.
+            val streamField = inbound.field("streamSettings")
+            if (streamField != null && !streamField.isJsonNull) {
+                val stream = streamField.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                if (!stream.unambiguous() || stream.field("network").text().orEmpty().lowercase(java.util.Locale.ROOT) !in listOf("", "tcp", "raw") ||
+                    stream.field("security").text().orEmpty().lowercase(java.util.Locale.ROOT) !in listOf("", "none")) return@mapNotNull null
+                if (stream.field("finalmask")?.takeUnless { it.isJsonNull } != null) return@mapNotNull null
+                for (name in listOf("sockopt", "rawSettings", "tcpSettings")) {
+                    val options = stream.field(name)?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                    if (!options.unambiguous() || options.field("acceptProxyProtocol")?.takeIf { it.isJsonPrimitive }?.asBoolean == true) {
+                        return@mapNotNull null
+                    }
+                    val header = options.field("header")?.takeIf { it.isJsonObject }?.asJsonObject
+                    if (header?.field("type").text().orEmpty() !in listOf("", "none")) return@mapNotNull null
+                }
+            }
+            val settings = inbound.field("settings")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
+            if (!settings.unambiguous()) return@mapNotNull null
+            val socksPassword = protocol == "socks" && settings.field("auth").text() == "password"
+            val accounts = (settings.field("accounts")?.takeUnless { it.isJsonNull } ?: settings.field("users"))
+                ?.takeIf { it.isJsonArray }?.asJsonArray
+            if (socksPassword && (accounts?.size() ?: 0) == 0) return@mapNotNull null
+            if ((protocol == "http" || socksPassword) && (accounts?.size() ?: 0) > 0) {
+                if (username.isNullOrBlank() || password.isNullOrBlank() || accounts?.any { account ->
+                        val item = account.takeIf { it.isJsonObject }?.asJsonObject ?: return@any false
+                        item.unambiguous() && item.field("user").text() == username && item.field("pass").text() == password
+                    } != true) return@mapNotNull null
+            }
+            port
+        }
+        return ports.firstOrNull { it == preferredPort } ?: ports.firstOrNull()
     }
 
     internal fun addTunInboundIfAbsent(json: JsonObject, createInbound: () -> V2rayConfig.InboundBean) {

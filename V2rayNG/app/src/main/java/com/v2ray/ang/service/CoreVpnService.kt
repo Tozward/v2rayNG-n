@@ -1,6 +1,7 @@
 package com.v2ray.ang.service
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.Service
 import android.content.Context
 import android.content.BroadcastReceiver
@@ -71,7 +72,14 @@ class CoreVpnService : VpnService(), ServiceControl {
     // the core registers its full command receiver. Repeated stops share one gate.
     private val earlyStopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.getIntExtra("key", -1) == AppConfig.MSG_STATE_STOP) stopAllService()
+            when (intent?.getIntExtra("key", -1)) {
+                AppConfig.MSG_STATE_STOP -> stopAllService()
+                AppConfig.MSG_QUERY_LOCAL_PROXY_PORT -> if (isOrderedBroadcast) {
+                    // Setup already owns a VPN service but may not have a listener yet.
+                    resultData = CoreServiceManager.getRunningHttpProxyPort()?.toString()
+                    resultCode = Activity.RESULT_OK
+                }
+            }
         }
     }
 

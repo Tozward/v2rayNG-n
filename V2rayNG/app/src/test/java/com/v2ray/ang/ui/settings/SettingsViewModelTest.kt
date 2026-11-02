@@ -35,6 +35,31 @@ import java.util.concurrent.atomic.AtomicReference
 class SettingsViewModelTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun retiredInitialBackendAndFailedWriteKeepTheNativeSelection() {
+        val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        Dispatchers.setMain(dispatcher)
+        val settings = mock<MMKV>()
+        try {
+            mockStatic(MMKV::class.java).use { staticMock ->
+                staticMock.`when`<MMKV> { MMKV.mmkvWithID("SETTING", MMKV.MULTI_PROCESS_MODE) }.thenReturn(settings)
+                LogUtil.refreshLogLevel()
+                val model = SettingsViewModel(mock<Application>(), { true }, {}, TunBackend.SING) {
+                    throw IllegalStateException("write failed")
+                }
+                assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
+                model.setTunBackend(TunBackend.HEV)
+                runBlocking { withTimeout(5_000) { model.awaitTunBackendSave() } }
+                assertTrue(model.tunBackendSaveError.value)
+                assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
+            }
+        } finally {
+            Dispatchers.resetMain()
+            dispatcher.close()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun failedBackendWriteRestoresThePersistedSelection() {
         val mainDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         Dispatchers.setMain(mainDispatcher)
@@ -97,7 +122,7 @@ class SettingsViewModelTest {
             }
             assertEquals(TunBackend.HEV, model.tunBackend.value)
             model.setTunBackend(TunBackend.SING)
-            assertEquals(TunBackend.SING, model.tunBackend.value)
+            assertEquals(TunBackend.SING_NATIVE, model.tunBackend.value)
             assertTrue(writeStarted.await(5, TimeUnit.SECONDS))
             model.setTunBackend(TunBackend.XRAY)
             ViewModelStore().apply { put("settings", model); clear() }

@@ -45,12 +45,12 @@ class SettingsViewModel internal constructor(
     private val _autoCheckUpdate = MutableStateFlow(readAutoCheckUpdate())
     val autoCheckUpdate = _autoCheckUpdate.asStateFlow()
     private val autoCheckSaveLock = Mutex()
-    private val _tunBackend = MutableStateFlow(initialTunBackend)
+    private val _tunBackend = MutableStateFlow(TunBackend.fromSettings(initialTunBackend.key, false))
     val tunBackend = _tunBackend.asStateFlow()
     private val _tunBackendSaveError = MutableStateFlow(false)
     val tunBackendSaveError = _tunBackendSaveError.asStateFlow()
     private val tunBackendSaveLock = Mutex()
-    private var savedTunBackend = initialTunBackend
+    private var savedTunBackend = _tunBackend.value
     private var tunBackendSaveJob: Job? = null
 
     /** The activity result must follow the persisted setting and its restart notification. */
@@ -62,9 +62,10 @@ class SettingsViewModel internal constructor(
     }
 
     fun setTunBackend(backend: TunBackend) {
-        if (_tunBackend.value == backend) return
+        val selectedBackend = TunBackend.fromSettings(backend.key, false)
+        if (_tunBackend.value == selectedBackend) return
         _tunBackendSaveError.value = false
-        _tunBackend.value = backend
+        _tunBackend.value = selectedBackend
         tunBackendSaveJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             withContext(NonCancellable) {
                 tunBackendSaveLock.withLock {

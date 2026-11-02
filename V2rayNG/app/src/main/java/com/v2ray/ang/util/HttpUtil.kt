@@ -125,9 +125,6 @@ object HttpUtil {
             .url(url)
             .get()
             .header("Connection", "close")
-        if (request.httpPort != 0 && !request.proxyUsername.isNullOrBlank() && !request.proxyPassword.isNullOrBlank()) {
-            requestBuilder.header("Proxy-Authorization", Credentials.basic(request.proxyUsername, request.proxyPassword))
-        }
         try {
             client.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -180,15 +177,11 @@ object HttpUtil {
 
             val headersMap = JsonUtil.parseHeadersToMap(request.requestHeaders)
             for ((key, value) in headersMap) {
-                LogUtil.d(AppConfig.TAG, "Adding custom header: $key = $value")
+                LogUtil.d(AppConfig.TAG, "Adding custom header: $key")
                 try {
                     requestBuilder.header(key, value)
                 } catch (_: IllegalArgumentException) {
                 }
-            }
-
-            if (request.httpPort != 0 && !request.proxyUsername.isNullOrBlank() && !request.proxyPassword.isNullOrBlank()) {
-                requestBuilder.header("Proxy-Authorization", Credentials.basic(request.proxyUsername, request.proxyPassword))
             }
 
             client.newCall(requestBuilder.build()).execute().use { response ->
@@ -250,7 +243,9 @@ object HttpUtil {
             builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(LOOPBACK, httpPort)))
             if (!proxyUsername.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                 builder.proxyAuthenticator { _, response ->
-                    if (response.request.header("Proxy-Authorization") != null) {
+                    if (response.request.header("Proxy-Authorization") != null ||
+                        (response.request.url.isHttps && response.request.method != "CONNECT")
+                    ) {
                         null
                     } else {
                         response.request.newBuilder()

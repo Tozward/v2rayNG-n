@@ -580,7 +580,7 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (eksperimental)</string>
-    <string name="tun_backend_sing_native">Sing yerli TUN (eksperimental)</string>
+    <string name="tun_backend_sing_native">Sing yerli TUN</string>
     <string name="error_tun_config_invalid">VPN TUN konfiqurasiyası yanlışdır. Bir inbounds massivi, ən çox bir tun və ya sing-tun girişi və hər giriş üçün bir protocol sahəsi göstərin.</string>
     <string name="error_tun_backend_restart_required">Tunel mühərrikini dəyişmək üçün VPN-i dayandırıb yenidən başladın.</string>
     <string name="error_tun_vpn_mode_required">Sing yerli TUN üçün VPN rejimi aktiv, root rejimi isə deaktiv olmalıdır.</string>

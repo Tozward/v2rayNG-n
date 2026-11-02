@@ -71,7 +71,12 @@ object CoreServiceManager {
     /** Reader chosen from the exact daemon config, including an explicit custom TUN. */
     @Volatile private var currentTunBackend: TunBackend? = null
 
+    /** Cached from the successful daemon config, not subsequently edited settings. */
+    @Volatile private var currentHttpProxyPort: Int? = null
+
     fun getRunningTunBackend(): TunBackend? = currentTunBackend
+
+    internal fun getRunningHttpProxyPort(): Int? = currentHttpProxyPort.takeIf { isRunning() && !isReloading }
 
     var serviceControl: SoftReference<ServiceControl>? = null
         set(value) {
@@ -119,6 +124,7 @@ object CoreServiceManager {
                 return true
             } catch (e: Exception) {
                 currentTunBackend = null
+                currentHttpProxyPort = null
                 val detail = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
                 val message = if (e is CoreTunConfigException) service.getString(e.messageRes) else detail
                 LogUtil.e(AppConfig.TAG, "StartCore-Manager: $detail", e)
@@ -145,6 +151,7 @@ object CoreServiceManager {
     @Throws(Exception::class)
     private fun launchCore(service: Service, vpnInterface: ParcelFileDescriptor?, isReload: Boolean = false) {
         val guid = MmkvManager.getSelectServer() ?: error("No server selected")
+        currentHttpProxyPort = null
         val config = MmkvManager.decodeServerConfig(guid) ?: error("Failed to decode server config")
 
         LogUtil.i(AppConfig.TAG, "StartCore-Manager: Starting core loop for ${config.remarks}")
@@ -183,6 +190,10 @@ object CoreServiceManager {
             error("Core failed to start")
         }
         currentTunBackend = tunBackend
+        currentHttpProxyPort = CoreConfigManager.runningHttpProxyPort(
+            result.content, SettingsManager.getHttpPort(), SettingsManager.getSocksUsername(),
+            SettingsManager.getSocksPassword(), Utils.isXray()
+        )
 
         if (browserDialer != null) {
             browserDialer!!.stop()
@@ -216,6 +227,7 @@ object CoreServiceManager {
      */
     fun stopCoreLoop(service: Service? = getService()): Job {
         connectionTestScope.coroutineContext.cancelChildren()
+        currentHttpProxyPort = null
 
         networkMonitor?.unregister()
         networkMonitor = null
@@ -241,6 +253,7 @@ object CoreServiceManager {
                     LogUtil.e(AppConfig.TAG, "StartCore-Manager: VPN/proxy/root stop failed to stop V2Ray loop", e)
                 } finally {
                     currentTunBackend = null
+                    currentHttpProxyPort = null
                     if (service != null) MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
                     NotificationManager.cancelNotification(service)
                 }
@@ -312,6 +325,7 @@ object CoreServiceManager {
             LogUtil.i(AppConfig.TAG, "StartCore-Manager: Core reload finished")
             true
         } catch (e: Exception) {
+            currentHttpProxyPort = null
             val detail = e.message?.takeUnless { it.isBlank() } ?: e.javaClass.simpleName
             val message = if (e is CoreTunConfigException) service.getString(e.messageRes) else detail
             LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to reload core: $detail", e)
@@ -522,12 +536,10 @@ object CoreServiceManager {
 
                 AppConfig.MSG_QUERY_LOCAL_PROXY_PORT -> {
                     if (isOrderedBroadcast) {
-                        if (isRunning()) {
-                            resultData = SettingsManager.getHttpPort().toString()
-                            resultCode = Activity.RESULT_OK
-                        } else {
-                            resultCode = Activity.RESULT_FIRST_USER
-                        }
+                        // A live daemon without a usable listener (or mid-reload) is
+                        // unknown, not stopped: callers must not silently go direct.
+                        resultData = getRunningHttpProxyPort()?.toString()
+                        resultCode = Activity.RESULT_OK
                     }
                 }
 

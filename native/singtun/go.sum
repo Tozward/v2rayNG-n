@@ -1,7 +1,7 @@
-github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102183952-d276f910aabb h1:TQFYWx2D/3MWiaP5LE/kNNPhaSKVQCORQ/TiDdYUlaM=
-github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102183952-d276f910aabb/go.mod h1:+NGXD2rLjLQZZZUykErrD943u7JYRozdO0EWh+bsDQQ=
-github.com/Tozward/sing-tun v0.9.7-0.20261102183854-9af120bbf524 h1:9et/44U7cT8yy3l0DsF/Nh4bX6nCVA2vcdoWhPWceuM=
-github.com/Tozward/sing-tun v0.9.7-0.20261102183854-9af120bbf524/go.mod h1:liMb9HPIWcFWqF6VJ/ttIY8fTSRPdRltBeSeEcXt1Dk=
+github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102200253-e965fbf73b28 h1:5x6HTWWkkXbOvcFPIghzJ4mpOCP8drkH67qagWZGSIE=
+github.com/Tozward/Xray-core-socks-uds v0.0.0-20261102200253-e965fbf73b28/go.mod h1:ND/8tt9ZwwjdOjzJopc9BaRAz9SCIZemsvb+x4AX3EA=
+github.com/Tozward/sing-tun v0.9.7-0.20261102194020-2c2f8b289bf6 h1:gW+DY8hbDRbFaNSJMTKf6Vj+EvZTBCKXEG9JiLYrC8U=
+github.com/Tozward/sing-tun v0.9.7-0.20261102194020-2c2f8b289bf6/go.mod h1:liMb9HPIWcFWqF6VJ/ttIY8fTSRPdRltBeSeEcXt1Dk=
 github.com/andybalholm/brotli v1.2.3 h1:8H1qwOkl2LPfjf3YezB90JnCliZb6SInJ/OJkEbA5NQ=
 github.com/andybalholm/brotli v1.2.3/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e h1:5mgtR5gwIgBKMiGI1QdXldZZ+SNor06Nbu1wCBulQBg=

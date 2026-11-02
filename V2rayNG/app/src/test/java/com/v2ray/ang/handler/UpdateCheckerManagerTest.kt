@@ -199,6 +199,51 @@ class UpdateCheckerManagerTest {
     }
 
     @Test
+    fun aLaterVerifiedDownloadCannotReplaceAnEarlierPendingInstall() = runBlocking {
+        val payloads = listOf("first verified release".toByteArray(), "second verified release".toByteArray())
+        val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
+        server.soTimeout = 5_000
+        val failure = AtomicReference<Throwable?>()
+        val responder = thread {
+            try {
+                for (bytes in payloads) {
+                    server.accept().use { socket ->
+                        socket.soTimeout = 5_000
+                        val reader = socket.getInputStream().bufferedReader()
+                        while (!reader.readLine().isNullOrEmpty()) { }
+                        socket.getOutputStream().apply {
+                            write("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                            write(bytes)
+                            flush()
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }
+        try {
+            val files = payloads.map { bytes ->
+                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                UpdateCheckerManager.downloadApk(temporaryFolder, CheckUpdateResult(
+                    hasUpdate = true,
+                    downloadUrl = "http://127.0.0.1:${server.localPort}/release",
+                    assetSize = bytes.size.toLong(),
+                    assetDigest = "sha256:$digest"
+                ), {})
+            }
+            assertTrue(files[0] != files[1])
+            payloads.indices.forEach { index -> assertEquals(payloads[index].toList(), files[index].readBytes().toList()) }
+        } finally {
+            server.close()
+            responder.join(10_000)
+        }
+        assertFalse(responder.isAlive)
+        failure.get()?.let { throw AssertionError("release fixture failed", it) }
+    }
+
+    @Test
     fun cancellingAStalledDownloadClosesTheRequestPromptly() = runBlocking {
         val requestReceived = CountDownLatch(1)
         val releaseResponse = CountDownLatch(1)

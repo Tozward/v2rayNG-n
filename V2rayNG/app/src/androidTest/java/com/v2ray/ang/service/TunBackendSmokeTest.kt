@@ -82,7 +82,7 @@ class TunBackendSmokeTest {
         ContextCompat.registerReceiver(context, receiver,
             IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY), ContextCompat.RECEIVER_NOT_EXPORTED)
         try {
-            for (backend in listOf(TunBackend.SING, TunBackend.HEV, TunBackend.XRAY, TunBackend.SING_NATIVE)) {
+            for (backend in TunBackend.selectable) {
                 assertTrue(MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key))
                 LauncherManager.startService(context, guid)
                 LauncherManager.startService(context, guid)
@@ -104,17 +104,6 @@ class TunBackendSmokeTest {
                 await("setup failure acknowledgement: $backend") { failures.get() > failuresBeforeStart }
                 await("failed setup service removal: $backend") { !serviceDump().contains("ServiceRecord{") }
                 assertTrue(isStopped())
-
-                if (backend == TunBackend.SING) {
-                    // Xray accepts this account, but SOCKS5 cannot encode its username.
-                    // Exercise native startup failure after fd/core acquisition and recovery.
-                    MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "x".repeat(256))
-                    val failuresBeforeNativeStart = failures.get()
-                    LauncherManager.startService(context, guid)
-                    await("native startup failure acknowledgement") { failures.get() > failuresBeforeNativeStart }
-                    await("native failure cleanup") { isStopped() && !serviceDump().contains("ServiceRecord{") }
-                    MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_USERNAME, "tun-user")
-                }
 
                 // A stop racing asynchronous setup must not leave a tunnel or recreate one.
                 LauncherManager.startService(context, guid)
@@ -142,7 +131,7 @@ class TunBackendSmokeTest {
                 LauncherManager.startService(context, customGuid)
                 awaitTransfer(if (protocol == "tun") TunBackend.XRAY else TunBackend.SING_NATIVE)
                 assertTransfer(udp = true)
-                assertEquals(selected, SettingsManager.getTunBackend())
+                assertEquals(TunBackend.fromSettings(selected.key, true), SettingsManager.getTunBackend())
                 stopAndAwait()
             }
 
@@ -150,7 +139,7 @@ class TunBackendSmokeTest {
             // Sing entry paths. Inspect Android's active VPN LinkProperties.
             for (mtu in listOf(1280, 1500, 9000)) {
                 MmkvManager.encodeSettings(AppConfig.PREF_VPN_MTU, mtu.toString())
-                for (backend in listOf(TunBackend.SING, TunBackend.SING_NATIVE)) {
+                for (backend in listOf(TunBackend.SING_NATIVE)) {
                     MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key)
                     LauncherManager.startService(context, guid)
                     awaitTransfer(backend)

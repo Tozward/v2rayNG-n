@@ -580,7 +580,7 @@
     <string name="tun_backend_xray">Xray TUN</string>
     <string name="tun_backend_hev">HEV TUN</string>
     <string name="tun_backend_sing">Sing TUN (experimental)</string>
-    <string name="tun_backend_sing_native">Sing native TUN (experimental)</string>
+    <string name="tun_backend_sing_native">Sing native TUN</string>
     <string name="error_tun_config_invalid">Invalid VPN TUN configuration. Specify one inbounds array and at most one tun or sing-tun inbound, with one protocol field per inbound.</string>
     <string name="error_tun_backend_restart_required">Stop and restart the VPN to change the tunnel engine.</string>
     <string name="error_tun_vpn_mode_required">Native Sing TUN requires VPN mode with root mode disabled.</string>

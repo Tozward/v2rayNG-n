@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      device_audit:
+        description: Also build isolated arm64 audit APKs; never publish these packages
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - master
@@ -28,7 +33,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == '' || inputs.debug_only
+    if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == '' || inputs.debug_only || inputs.device_audit
     runs-on: ubuntu-latest
 
     steps:
@@ -135,7 +140,7 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest --tests com.v2ray.ang.core.CoreLocalProxyConfigTest --tests com.v2ray.ang.handler.UpdateProxyAuthenticationTest --tests com.v2ray.ang.util.HttpUtilProxyAuthenticationTest
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
         ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
         ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugKotlin :app:assembleFdroidDebug
@@ -183,6 +188,36 @@ jobs:
         path: |
           V2rayNG/app/build/outputs/apk/playstore/debug/*x86_64*.apk
           V2rayNG/app/build/outputs/apk/androidTest/playstore/debug/*.apk
+
+    - name: Preserve native inputs for the isolated device audit
+      if: inputs.device_audit
+      uses: actions/upload-artifact@v7
+      with:
+        name: native-audit-inputs
+        path: |
+          V2rayNG/app/libs/libv2ray.aar
+          V2rayNG/app/libs/**/*.so
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Build an Android HEV descriptor runner for matched core measurements
+      if: inputs.device_audit
+      run: |
+        mkdir -p phone-fixtures
+        "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+          -O3 -Ihev-socks5-tunnel/include tools/ci/phone_hev_runner.c \
+          -LV2rayNG/app/libs/arm64-v8a -lhev-socks5-tunnel \
+          -o phone-fixtures/hev-runner
+        cp V2rayNG/app/libs/arm64-v8a/libhev-socks5-tunnel.so phone-fixtures/
+
+    - name: Preserve matched Android HEV runner
+      if: inputs.device_audit
+      uses: actions/upload-artifact@v7
+      with:
+        name: phone-hev-fixture
+        path: phone-fixtures
+        if-no-files-found: error
+        retention-days: 7
 
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
@@ -250,9 +285,10 @@ jobs:
             adb shell pm grant com.v2ray.ang android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n com.v2ray.ang/.ui.main.MainActivity
             adb logcat -c
-            adb shell am instrument -w -e class com.v2ray.ang.service.TunBackendSmokeTest com.v2ray.ang.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/instrumentation.txt"
+            adb shell am instrument -w -e class com.v2ray.ang.service.TunBackendSmokeTest,com.v2ray.ang.ui.settings.SettingsBackendUiTest com.v2ray.ang.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/instrumentation.txt"
             adb logcat -d > "$RUNNER_TEMP/logcat.txt"
-            grep -q 'OK (1 test)' "$RUNNER_TEMP/instrumentation.txt"
+            grep -q 'OK (2 tests)' "$RUNNER_TEMP/instrumentation.txt"
+            grep -q 'UI_BACKEND label=' "$RUNNER_TEMP/instrumentation.txt"
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -263,10 +299,57 @@ jobs:
             ${{ runner.temp }}/logcat.txt
             ${{ runner.temp }}/socks-echo.log
 
+  device-audit:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.device_audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-audit-inputs
+          path: V2rayNG/app/libs
+      - name: Build a scratch-only package from the verified native inputs
+        working-directory: V2rayNG
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/build.gradle.kts')
+          source = path.read_text()
+          needle = 'applicationId = "com.v2ray.ang"'
+          assert source.count(needle) == 1, 'Unexpected applicationId declaration'
+          path.write_text(source.replace(needle, 'applicationId = "com.v2ray.ang.audit"'))
+          PY
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          chmod 755 gradlew
+          ./gradlew :app:assemblePlaystoreDebug :app:assemblePlaystoreDebugAndroidTest -PABI_FILTERS=arm64-v8a
+          APK=$(find app/build/outputs/apk/playstore/debug -name '*arm64-v8a*.apk' -print -quit)
+          "$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging "$APK" > audit-package.txt
+          grep -q "^package: name='com.v2ray.ang.audit' " audit-package.txt
+      - name: Preserve isolated device audit APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: device-audit-apks
+          path: |
+            V2rayNG/app/build/outputs/apk/playstore/debug/*arm64-v8a*.apk
+            V2rayNG/app/build/outputs/apk/androidTest/playstore/debug/*.apk
+            V2rayNG/audit-package.txt
+          if-no-files-found: error
+          retention-days: 7
+
   sign-and-release:
     needs: [build, android-smoke]
     runs-on: ubuntu-26.04
-    if: always() && github.event_name == 'workflow_dispatch' && !inputs.debug_only && inputs.release_tag != '' && ((needs.build.result == 'success' && needs.android-smoke.result == 'success') || inputs.source_run_id != '')
+    if: always() && github.event_name == 'workflow_dispatch' && !inputs.debug_only && !inputs.device_audit && inputs.release_tag != '' && ((needs.build.result == 'success' && needs.android-smoke.result == 'success') || inputs.source_run_id != '')
     env:
       HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
@@ -300,7 +383,7 @@ jobs:
       - name: Prepare APK files
         run: |
           mkdir -p release-files
-          find release -type f -name '*.apk' ! -path 'release/emulator-tests/*' -exec cp {} release-files/ \;
+          find release -type f -name '*.apk' ! -path 'release/emulator-tests/*' ! -path 'release/device-audit-apks/*' -exec cp {} release-files/ \;
           test -n "$(find release-files -maxdepth 1 -name '*.apk' -print -quit)"
 
       - name: Sign APK files with GPG when configured

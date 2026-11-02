@@ -1,22 +1,23 @@
-# Experimental Sing TUN backends
+# Sing native TUN integration
 
 ## Source and scope
 
 This branch integrates the new Go TCP/IP stack from sing-box 1.15, not the
 sing-box core, configuration system, routing engine, protocols, or service.
-The optional VPN choices include the existing SOCKS-backed Sing TUN and a separate
-native Sing TUN. Existing HEV/Xray choices and their persisted legacy preference
-remain compatible; upgrading does not select either experimental backend.
+The VPN choices are Xray, HEV and Sing native TUN. Existing HEV/Xray choices
+and their persisted legacy preference remain compatible. The retired Sing SOCKS
+selection key upgrades to Sing native TUN; upgrading does not change HEV/Xray.
 
 | Saved key | Backend | Local SOCKS bridge |
 | --- | --- | --- |
 | `xray` | Existing Xray TUN | No |
 | `hev` | Existing HEV TUN | Yes |
-| `sing` | Existing Sing TUN (experimental) | Yes |
-| `sing_native` | Sing native TUN (experimental) | No |
+| `sing` | Retired selection alias for Sing native TUN | No |
+| `sing_native` | Sing native TUN | No |
 
-The saved `sing` key keeps its existing behavior. No preference migration or
-default change selects `sing_native`. Proxy-only and root mode retain their
+The saved `sing` key remains readable and resolves to `sing_native`; it is not
+a fourth GUI choice. The old enum/controller is retained for internal compatibility
+and controlled comparisons, not for new selection. Proxy-only and root mode retain their
 existing paths; this choice controls VPN mode only.
 Root mode takes priority over the saved VPN setting, matching the launcher.
 Core TUN generation and process metadata require VPN mode with root mode disabled;
@@ -30,10 +31,10 @@ Audited source:
 | --- | --- |
 | sing-box reference | `v1.15.0-alpha.13`, `824dbcfb4dd0a95921840b1737b950cde590241e` |
 | sing-tun upstream | `611d83b7a57b4719be45581eb674942ff561de6c` |
-| sing-tun integration fork | `9af120bbf52457f6c946e4d63587c2bfed57e07e` |
+| sing-tun integration fork | `2c2f8b289bf652b432506e0a6fe50e6ac6bd1fa2` |
 | sing | `03a6cce64bf744023af9e2691fb11afd405b9061` |
 | AndroidLibXrayLite | unchanged gitlink `2ffe5f794a32ba15b122e177b5acffc6f11c4959` |
-| Xray-core integration fork | `d276f910aabb31c1303e56293ca108c17d9b9aa7` |
+| Xray-core integration fork | `e965fbf73b280483598d7d2ad4b406c00464fcbc` |
 | Xray upstream baseline for the native integration | `7c8dbcb4bbec7f80d16070069e0b2f7bf3aca62c` |
 
 The SagerNet libraries use GPLv3, compatible with this GPLv3 project. Their
@@ -42,7 +43,7 @@ The new libraries' copyright notices and the GPLv3 text are bundled as an APK as
 The 1.15 reference is an alpha release. Upstream performance claims are not
 evidence that this Android integration outperforms HEV or consumes less energy.
 
-## SOCKS-backed Sing TUN path
+## Retired SOCKS-backed Sing TUN implementation
 
 ```
 Android VpnService fd -> sing-tun NewGo -> authenticated loopback SOCKS5
@@ -188,8 +189,10 @@ coverage; it does not establish rooted-device lifecycle behavior.
 
 Android service/UI runtime checks and comparative throughput, CPU, wakeup,
 memory, and energy measurements must be reported separately from build checks.
-Keep the backend experimental until those checks pass. Do not infer energy
-savings from a successful transfer or synthetic throughput benchmark.
+The final release audit records actual runtime checks separately from the GUI
+label. Do not infer energy savings from a successful transfer or synthetic
+throughput benchmark. See `release-audit-20261103.md` for the release evidence
+and intentional upstream synchronization boundaries.
 
 ## Candidate .2 verification
 

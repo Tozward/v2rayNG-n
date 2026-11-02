@@ -18,7 +18,7 @@ class TunBackendTest {
 
     @Test
     fun explicitBackendOverridesTheLegacySwitch() {
-        TunBackend.entries.forEach { backend ->
+        TunBackend.selectable.forEach { backend ->
             assertEquals(backend, TunBackend.fromSettings(backend.key, true))
             assertEquals(backend, TunBackend.fromSettings(backend.key, false))
         }
@@ -27,6 +27,13 @@ class TunBackendTest {
         assertTrue(TunBackend.SING.usesLocalSocks)
         assertFalse(TunBackend.SING_NATIVE.usesLocalSocks)
         assertEquals("sing_native", TunBackend.SING_NATIVE.key)
+    }
+
+    @Test
+    fun retiredSingKeySelectsTheNativeBackend() {
+        assertEquals(TunBackend.SING_NATIVE, TunBackend.fromSettings("sing", true))
+        assertEquals(TunBackend.SING_NATIVE, TunBackend.fromSettings("sing", false))
+        assertEquals(listOf("xray", "hev", "sing_native"), TunBackend.selectable.map { it.key })
     }
 
     @Test

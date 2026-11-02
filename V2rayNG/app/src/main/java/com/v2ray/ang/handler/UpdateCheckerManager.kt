@@ -5,12 +5,11 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.CheckUpdateResult
 import com.v2ray.ang.dto.GitHubRelease
-import com.v2ray.ang.dto.UrlContentRequest
-import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -18,6 +17,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -57,18 +57,16 @@ object UpdateCheckerManager {
             if (activeProxyPort != null && activeProxyPort !in 1..65535) {
                 throw IOException("Invalid running proxy port")
             }
-            val proxyRequest = activeProxyPort?.let { port ->
-                UrlContentRequest(
-                    url = url,
-                    timeout = timeout,
-                    httpPort = port,
-                    proxyUsername = SettingsManager.getSocksUsername(),
-                    proxyPassword = SettingsManager.getSocksPassword()
-                )
+            val request = Request.Builder().url(url)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "v2rayNG/${BuildConfig.VERSION_NAME}")
+                .build()
+            // Keep proxy credentials on the proxy's authentication exchange, never
+            // on the tunneled GitHub request. Both metadata and APK IO cancel promptly.
+            executeRequest(updateClient(activeProxyPort ?: 0, timeout.toLong()), request) { result ->
+                if (!result.isSuccessful) throw IOException("Release check returned ${result.code}")
+                result.body.string()
             }
-            val request = proxyRequest ?: UrlContentRequest(url = url, timeout = timeout)
-            HttpUtil.getUrlContent(request)
-                ?: throw IOException("Could not load release list")
         }
         return withContext(Dispatchers.Default) {
             val releases = parseReleases(response, includePreRelease)
@@ -179,9 +177,11 @@ object UpdateCheckerManager {
         val updateDir = File(cacheDir, "updates")
         if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Could not create update cache")
         val pending = File.createTempFile("pending-", ".apk", updateDir)
-        val ready = File(updateDir, "update.apk")
+        // A returned FileProvider URI must keep referring to these verified bytes
+        // even if another activity downloads a different release before installation.
+        val ready = File(updateDir, pending.name.replaceFirst("pending-", "update-"))
         try {
-            val client = downloadClient(activeProxyPort ?: 0)
+            val client = updateClient(activeProxyPort ?: 0)
             val request = Request.Builder()
                 .url(url)
                 .header("Accept", "application/octet-stream")
@@ -192,39 +192,27 @@ object UpdateCheckerManager {
             val hash = MessageDigest.getInstance("SHA-256")
             var received = 0L
             var lastProgress = -1
-            val call = client.newCall(request)
-            val cancellationWatcher = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                try {
-                    awaitCancellation()
-                } finally {
-                    call.cancel()
-                }
-            }
-            try {
-                call.execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
-                    response.body.byteStream().use { input ->
-                        pending.outputStream().use { output ->
-                            val buffer = ByteArray(32 * 1024)
-                            while (true) {
-                                currentCoroutineContext().ensureActive()
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                output.write(buffer, 0, count)
-                                hash.update(buffer, 0, count)
-                                received += count
-                                if (received > expectedSize) throw IOException("Release size exceeded")
-                                val progress = (received * 100 / expectedSize).toInt()
-                                if (progress != lastProgress) {
-                                    lastProgress = progress
-                                    onProgress(progress)
-                                }
+            executeRequest(client, request) { response ->
+                if (!response.isSuccessful) throw IOException("Release download returned ${response.code}")
+                response.body.byteStream().use { input ->
+                    pending.outputStream().use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            hash.update(buffer, 0, count)
+                            received += count
+                            if (received > expectedSize) throw IOException("Release size exceeded")
+                            val progress = (received * 100 / expectedSize).toInt()
+                            if (progress != lastProgress) {
+                                lastProgress = progress
+                                onProgress(progress)
                             }
                         }
                     }
                 }
-            } finally {
-                cancellationWatcher.cancel()
             }
             currentCoroutineContext().ensureActive()
             if (received != expectedSize) throw IOException("Release size mismatch")
@@ -232,8 +220,7 @@ object UpdateCheckerManager {
             if (!expectedDigest.substringAfter(':').equals(actualDigest, ignoreCase = true)) {
                 throw IOException("Release digest mismatch")
             }
-            if (ready.exists() && !ready.delete()) throw IOException("Could not replace cached update")
-            if (!pending.renameTo(ready)) throw IOException("Could not finish update download")
+            if (ready.exists() || !pending.renameTo(ready)) throw IOException("Could not finish update download")
             ready
         } catch (e: IOException) {
             currentCoroutineContext().ensureActive()
@@ -243,23 +230,61 @@ object UpdateCheckerManager {
         }
     }
 
-    private fun downloadClient(port: Int = 0): OkHttpClient {
+    private suspend fun <T> executeRequest(
+        client: OkHttpClient,
+        request: Request,
+        consume: suspend (Response) -> T
+    ): T = coroutineScope {
+        val call = client.newCall(request)
+        val cancellationWatcher = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitCancellation()
+            } finally {
+                call.cancel()
+            }
+        }
+        try {
+            ensureActive()
+            call.execute().use { consume(it) }
+        } catch (error: IOException) {
+            ensureActive()
+            throw error
+        } finally {
+            cancellationWatcher.cancel()
+        }
+    }
+
+    private fun updateClient(port: Int, timeoutMillis: Long? = null): OkHttpClient = updateClient(port, timeoutMillis) {
+        SettingsManager.getSocksUsername() to SettingsManager.getSocksPassword()
+    }
+
+    internal fun updateClient(port: Int, username: String?, password: String?, timeoutMillis: Long? = null): OkHttpClient =
+        updateClient(port, timeoutMillis) { username to password }
+
+    private fun updateClient(port: Int, timeoutMillis: Long?, credentials: () -> Pair<String?, String?>): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(30, TimeUnit.MINUTES)
             .followRedirects(true)
+        if (timeoutMillis != null) {
+            builder.connectTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
+                .callTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
+        }
         if (port > 0) {
             builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(AppConfig.LOOPBACK, port)))
             builder.proxyAuthenticator { _, response ->
-                val username = SettingsManager.getSocksUsername()
-                val password = SettingsManager.getSocksPassword()
                 if (response.request.header("Proxy-Authorization") != null ||
-                    username.isNullOrBlank() || password.isNullOrBlank()
+                    (response.request.url.isHttps && response.request.method != "CONNECT")
                 ) null
-                else response.request.newBuilder()
-                    .header("Proxy-Authorization", Credentials.basic(username, password))
-                    .build()
+                else {
+                    val (username, password) = credentials()
+                    if (username.isNullOrBlank() || password.isNullOrBlank()) null
+                    else response.request.newBuilder()
+                        .header("Proxy-Authorization", Credentials.basic(username, password))
+                        .build()
+                }
             }
         }
         return builder.build()
