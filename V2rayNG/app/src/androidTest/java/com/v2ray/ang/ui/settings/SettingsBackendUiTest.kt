@@ -56,6 +56,12 @@ class SettingsBackendUiTest {
             touch(option(labels[1]))
             awaitSaved("hev")
             openChoices()
+            activateKey(option(labels[2]), KeyEvent.KEYCODE_SPACE, InputDevice.SOURCE_KEYBOARD)
+            awaitSaved("sing_native")
+            openChoices()
+            touch(option(labels[1]))
+            awaitSaved("hev")
+            openChoices()
             activateKey(option(labels[2]), KeyEvent.KEYCODE_DPAD_CENTER, InputDevice.SOURCE_DPAD)
             awaitSaved("sing_native")
         }
@@ -80,7 +86,7 @@ class SettingsBackendUiTest {
 
     private fun openChoices() {
         touch(settingsRow())
-        await("backend dialog") { nodes().count { it.isCheckable && it.isClickable } == 3 }
+        await("backend dialog") { backendChoices().size == 3 }
     }
 
     private fun settingsRow(): AccessibilityNodeInfo {
@@ -108,16 +114,20 @@ class SettingsBackendUiTest {
         else generateSequence(leaf) { it.parent }.take(8).firstOrNull { it.isClickable }
     }
 
+    private fun backendChoices(): List<AccessibilityNodeInfo> = nodes().filter {
+        it.isCheckable && it.isClickable && textOf(it) in labels
+    }
+
     private fun option(label: String): AccessibilityNodeInfo =
-        nodes().first { it.isCheckable && it.isClickable && textOf(it) == label }
+        backendChoices().first { textOf(it) == label }
 
     private fun textOf(node: AccessibilityNodeInfo): String = nodes(node).flatMap {
         listOfNotNull(it.text?.toString(), it.contentDescription?.toString())
     }.filter { it.isNotBlank() }.distinct().joinToString("\n")
 
     private fun assertChoices(selected: String) {
-        await("backend dialog choices") { nodes().count { it.isCheckable && it.isClickable } == 3 }
-        val choices = nodes().filter { it.isCheckable && it.isClickable }
+        await("backend dialog choices") { backendChoices().size == 3 }
+        val choices = backendChoices()
         assertEquals(labels.toSet(), choices.map(::textOf).toSet())
         for (node in choices) {
             val label = textOf(node)
@@ -189,7 +199,7 @@ class SettingsBackendUiTest {
     }
 
     private fun awaitSaved(key: String) = await("persisted $key") {
-        MmkvManager.decodeSettingsString(AppConfig.PREF_TUN_BACKEND) == key
+        MmkvManager.decodeSettingsString(AppConfig.PREF_TUN_BACKEND) == key && backendChoices().isEmpty()
     }
 
     private fun await(description: String, condition: () -> Boolean) {
