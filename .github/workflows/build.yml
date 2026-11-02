@@ -283,6 +283,7 @@ jobs:
 
   android-smoke:
     needs: build
+    if: always() && (needs.build.result == 'success' || (inputs.source_run_id != '' && inputs.release_tag == '' && !inputs.device_audit && !inputs.debug_only))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -294,10 +295,30 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+      - name: Resolve emulator source artifacts
+        id: emulator-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          if [ "$BUILD_RESULT" = success ]; then
+            SOURCE_RUN_ID="$GITHUB_RUN_ID"
+          else
+            read -r RESULT BRANCH SHA REPOSITORY <<< "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '[.conclusion, .head_branch, .head_sha, .head_repository.full_name] | @tsv')"
+            if [ "$RESULT" != success ] || [ "$BRANCH" != "$GITHUB_REF_NAME" ] || [ "$REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+              echo "Emulator source must be a successful build on this branch and repository" >&2
+              exit 1
+            fi
+            echo "Rechecking compiled source $SHA"
+          fi
+          echo "run_id=$SOURCE_RUN_ID" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v8
         with:
           name: emulator-tests
           path: emulator-tests
+          run-id: ${{ steps.emulator-source.outputs.run_id }}
+          github-token: ${{ github.token }}
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -323,6 +344,23 @@ jobs:
             adb logcat -d > "$RUNNER_TEMP/logcat.txt"
             grep -q 'OK (2 tests)' "$RUNNER_TEMP/instrumentation.txt"
             grep -q 'UI_BACKEND label=' "$RUNNER_TEMP/instrumentation.txt"
+            # A real package replacement must reclaim installed APKs while
+            # preserving in-flight and unrecognized cache files.
+            APK_SOURCE=$(adb shell pm path com.v2ray.ang | sed -n 's/^package://p' | tr -d '\r')
+            test -n "$APK_SOURCE"
+            adb shell run-as com.v2ray.ang mkdir -p cache/updates
+            adb shell run-as com.v2ray.ang cp "$APK_SOURCE" cache/updates/update-installed.apk
+            adb shell run-as com.v2ray.ang touch cache/updates/pending-in-flight.apk cache/updates/update-unknown.apk cache/unrelated-cache
+            adb install -r $(find emulator-tests -name '*x86_64.apk')
+            for ATTEMPT in $(seq 1 60); do
+              if adb shell run-as com.v2ray.ang test ! -e cache/updates/update-installed.apk; then break; fi
+              sleep 0.25
+            done
+            adb shell run-as com.v2ray.ang test ! -e cache/updates/update-installed.apk
+            adb shell run-as com.v2ray.ang test -e cache/updates/pending-in-flight.apk
+            adb shell run-as com.v2ray.ang test -e cache/updates/update-unknown.apk
+            adb shell run-as com.v2ray.ang test -e cache/unrelated-cache
+            echo 'UPDATE_CACHE_REPLACEMENT passed' | tee "$RUNNER_TEMP/update-cache-replacement.txt"
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -332,6 +370,7 @@ jobs:
             ${{ runner.temp }}/instrumentation.txt
             ${{ runner.temp }}/logcat.txt
             ${{ runner.temp }}/socks-echo.log
+            ${{ runner.temp }}/update-cache-replacement.txt
 
   device-audit:
     needs: build
