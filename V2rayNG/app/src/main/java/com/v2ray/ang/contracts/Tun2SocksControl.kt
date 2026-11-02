@@ -16,4 +16,6 @@ interface Tun2SocksControl {
      * Stops the tun2socks process and cleans up resources.
      */
     fun stopTun2Socks()
+
+    fun resetNetwork() {}
 }

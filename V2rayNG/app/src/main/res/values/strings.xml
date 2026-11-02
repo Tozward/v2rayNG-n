@@ -576,4 +576,8 @@
     <string name="sub_info_traffic" translatable="false">%1$s / %2$s</string>
     <string name="sub_info_unlimited">Unlimited</string>
 
+    <string name="title_pref_tun_backend">VPN tunnel engine</string>
+    <string name="tun_backend_xray">Xray TUN</string>
+    <string name="tun_backend_hev">HEV TUN</string>
+    <string name="tun_backend_sing">Sing TUN (experimental)</string>
 </resources>

@@ -6,9 +6,13 @@ import android.provider.Settings
 import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
+import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.handler.SettingsChangeManager
+import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.root.RootManager
 import com.v2ray.ang.ui.base.BaseViewModel
+import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -22,18 +26,54 @@ import kotlinx.coroutines.sync.withLock
 class SettingsViewModel internal constructor(
     application: Application,
     private val readAutoCheckUpdate: () -> Boolean,
-    private val saveAutoCheckUpdate: (Boolean) -> Unit
+    private val saveAutoCheckUpdate: (Boolean) -> Unit,
+    initialTunBackend: TunBackend = TunBackend.HEV,
+    private val saveTunBackend: (TunBackend) -> Unit = { backend ->
+        check(MmkvManager.encodeSettings(AppConfig.PREF_TUN_BACKEND, backend.key)) { "Could not save TUN backend" }
+        SettingsChangeManager.notifySettingChanged(AppConfig.PREF_TUN_BACKEND)
+    }
 ) : BaseViewModel(application) {
 
     constructor(application: Application) : this(
         application,
         { MmkvManager.decodeSettingsBool(AppConfig.PREF_AUTO_CHECK_UPDATE, true) },
-        { enabled -> MmkvManager.encodeSettings(AppConfig.PREF_AUTO_CHECK_UPDATE, enabled) }
+        { enabled -> MmkvManager.encodeSettings(AppConfig.PREF_AUTO_CHECK_UPDATE, enabled) },
+        SettingsManager.getTunBackend()
     )
 
     private val _autoCheckUpdate = MutableStateFlow(readAutoCheckUpdate())
     val autoCheckUpdate = _autoCheckUpdate.asStateFlow()
     private val autoCheckSaveLock = Mutex()
+    private val _tunBackend = MutableStateFlow(initialTunBackend)
+    val tunBackend = _tunBackend.asStateFlow()
+    private val _tunBackendSaveError = MutableStateFlow(false)
+    val tunBackendSaveError = _tunBackendSaveError.asStateFlow()
+    private val tunBackendSaveLock = Mutex()
+    private var savedTunBackend = initialTunBackend
+
+    fun setTunBackend(backend: TunBackend) {
+        if (_tunBackend.value == backend) return
+        _tunBackendSaveError.value = false
+        _tunBackend.value = backend
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                tunBackendSaveLock.withLock {
+                    val selected = _tunBackend.value
+                    try {
+                        saveTunBackend(selected)
+                        savedTunBackend = selected
+                        if (_tunBackend.value == selected) _tunBackendSaveError.value = false
+                    } catch (error: Exception) {
+                        if (_tunBackend.value == selected) {
+                            _tunBackend.value = savedTunBackend
+                            _tunBackendSaveError.value = true
+                        }
+                        LogUtil.e(AppConfig.TAG, "Failed to save VPN TUN backend", error)
+                    }
+                }
+            }
+        }
+    }
 
     fun setAutoCheckUpdate(enabled: Boolean) {
         _autoCheckUpdate.value = enabled

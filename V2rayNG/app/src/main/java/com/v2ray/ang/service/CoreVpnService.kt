@@ -11,12 +11,14 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.StrictMode
+import androidx.core.content.ContextCompat
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.AppConfig.LOOPBACK
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.contracts.ServiceControl
 import com.v2ray.ang.contracts.Tun2SocksControl
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.NotificationManager
@@ -27,18 +29,29 @@ import com.v2ray.ang.util.Utils
 import java.lang.ref.SoftReference
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 @SuppressLint("VpnServicePolicy")
 class CoreVpnService : VpnService(), ServiceControl {
+    private companion object {
+        const val ACTION_READY = "${AppConfig.ANG_PACKAGE}.action.VPN_READY"
+    }
+
     private var mInterface: ParcelFileDescriptor? = null
     @Volatile private var isRunning = false
-    private var tun2SocksService: Tun2SocksControl? = null
+    @Volatile private var tun2SocksService: Tun2SocksControl? = null
     private val lifecycle = VpnLifecycleGate()
+    private val setupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var setupJob: Job? = null
+    @Volatile private var tunnelReady = false
     private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var teardownJob: Job? = null
 
@@ -70,6 +83,15 @@ class CoreVpnService : VpnService(), ServiceControl {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         NotificationManager.ensureForeground()
+        if (intent?.action == ACTION_READY) {
+            if (lifecycle.shouldReuseRunningTunnel(
+                    tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                )) return START_STICKY
+            // A readiness command can be delivered after a stop destroyed its originating instance.
+            if (setupJob?.isActive != true) stopAllService()
+            return START_NOT_STICKY
+        }
+        if (setupJob?.isActive == true) return START_NOT_STICKY
         // Always-on VPN restarts from OS deliver intent.action == SERVICE_INTERFACE or null intent.
         // A repeated system command must not replace the descriptor underneath a live core.
         // A handover temporarily stops the core while keeping this tunnel alive.
@@ -77,25 +99,52 @@ class CoreVpnService : VpnService(), ServiceControl {
         val isSystemVpnStart = intent == null || intent.action == SERVICE_INTERFACE
         if (isSystemVpnStart) {
             if (lifecycle.shouldReuseRunningTunnel(
-                    isRunning, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                    tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
                 )) return START_STICKY
             unlockStart()
         }
         if (!tryLockStart()) {
             LogUtil.w(AppConfig.TAG, "StartCore-VPN: Start already in progress")
             return if (lifecycle.shouldReuseRunningTunnel(
-                    isRunning, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                    tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
                 )) START_STICKY else START_NOT_STICKY
         }
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received, systemVpnStart=$isSystemVpnStart")
-        if (!setupVpnService()) {
-            unlockStart()
-            // Stop service if setup fails to avoid infinite restart loops (START_STICKY)
-            stopSelf()
-            return START_NOT_STICKY
+        val job = setupScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                if (!lifecycle.shouldReuseRunningTunnel(
+                        tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
+                    )) {
+                    tunnelReady = false
+                    tun2SocksService?.stopTun2Socks()
+                    tun2SocksService = null
+                    if (!setupVpnService()) {
+                        stopAllService()
+                        return@launch
+                    }
+                    ensureActive()
+                    startService()
+                }
+                ensureActive()
+                if (tunnelReady && !lifecycle.isStopping() && CoreServiceManager.isRunning()) {
+                    // Mark sticky only after both the core and its TUN backend are ready.
+                    // The explicit service command performs no setup on the main thread.
+                    ContextCompat.startForegroundService(
+                        this@CoreVpnService,
+                        Intent(this@CoreVpnService, CoreVpnService::class.java).setAction(ACTION_READY)
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                if (!lifecycle.isStopping()) stopAllService()
+                throw cancelled
+            } catch (error: Exception) {
+                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Setup failed, guid=${MmkvManager.getSelectServer()}", error)
+                stopAllService()
+            }
         }
-        startService()
-        return if (lifecycle.isStopping()) START_NOT_STICKY else START_STICKY
+        setupJob = job
+        job.start()
+        return START_NOT_STICKY
     }
 
     override fun getService(): Service {
@@ -103,6 +152,7 @@ class CoreVpnService : VpnService(), ServiceControl {
     }
 
     override fun startService() {
+        if (lifecycle.isStopping()) return
         val vpnInterface = mInterface
         if (vpnInterface == null) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
@@ -114,6 +164,11 @@ class CoreVpnService : VpnService(), ServiceControl {
             stopAllService()
             return
         }
+
+        if (lifecycle.isStopping()) return
+        runTun2socks()
+        if (lifecycle.isStopping()) return
+        tunnelReady = true
 
         // Start LAN sharing if enabled in settings
         RootLanSharing.startClientSharing(this)
@@ -129,6 +184,10 @@ class CoreVpnService : VpnService(), ServiceControl {
 
     override fun setUnderlyingNetworks(networks: Array<Network>?): Boolean {
         return super<VpnService>.setUnderlyingNetworks(networks)
+    }
+
+    override fun resetTunNetwork() {
+        if (!lifecycle.isStopping()) tun2SocksService?.resetNetwork()
     }
 
     override fun attachBaseContext(newBase: Context?) {
@@ -152,7 +211,6 @@ class CoreVpnService : VpnService(), ServiceControl {
             return false
         }
 
-        runTun2socks()
         return true
     }
 
@@ -308,15 +366,15 @@ class CoreVpnService : VpnService(), ServiceControl {
     private fun runTun2socks() {
         val vpnInterface = mInterface ?: return
         if (!isRunning || lifecycle.isStopping()) return
-        if (SettingsManager.isUsingHevTun()) {
-            tun2SocksService = TProxyService(
+        tun2SocksService = when (SettingsManager.getTunBackend()) {
+            TunBackend.HEV -> TProxyService(
                 context = applicationContext,
                 vpnInterface = vpnInterface,
                 isRunningProvider = { isRunning },
                 restartCallback = { runTun2socks() }
             )
-        } else {
-            tun2SocksService = null
+            TunBackend.SING -> SingTunService(vpnInterface)
+            TunBackend.XRAY -> null
         }
 
         tun2SocksService?.startTun2Socks()
@@ -326,12 +384,16 @@ class CoreVpnService : VpnService(), ServiceControl {
         if (!lifecycle.beginStop()) return
         unlockStart()
         isRunning = false
-        val tunnel = tun2SocksService
-        tun2SocksService = null
-        val vpnInterface = mInterface
-        mInterface = null
+        tunnelReady = false
 
         teardownJob = teardownScope.launch {
+            setupJob?.cancelAndJoin()
+            setupScope.cancel()
+            isRunning = false
+            val tunnel = tun2SocksService
+            tun2SocksService = null
+            val vpnInterface = mInterface
+            mInterface = null
             try {
                 try {
                     tunnel?.stopTun2Socks()

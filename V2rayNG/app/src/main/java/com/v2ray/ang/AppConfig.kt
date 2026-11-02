@@ -85,6 +85,7 @@ object AppConfig {
     const val PREF_DISMISSED_UPDATE_TAG = "pref_dismissed_update_tag"
     const val PREF_GEO_FILES_SOURCES = "pref_geo_files_sources"
     const val PREF_USE_HEV_TUNNEL = "pref_use_hev_tunnel_v2"
+    const val PREF_TUN_BACKEND = "pref_tun_backend"
     const val PREF_HEV_TUNNEL_LOGLEVEL = "pref_hev_tunnel_loglevel"
     const val PREF_HEV_TUNNEL_RW_TIMEOUT = "pref_hev_tunnel_rw_timeout_v2"
     const val PREF_UPDATE_SUBSCRIPTION = "pref_update_subscription"

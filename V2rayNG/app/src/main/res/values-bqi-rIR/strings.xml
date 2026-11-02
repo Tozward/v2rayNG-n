@@ -575,4 +575,8 @@
     <string name="sub_info_open_page">واز کردن صفحه اطلاعات اشتراک</string>
     <string name="sub_info_unlimited">بی‌حد</string>
 
+    <string name="title_pref_tun_backend">موتور تونل VPN</string>
+    <string name="tun_backend_xray">Xray TUN</string>
+    <string name="tun_backend_hev">HEV TUN</string>
+    <string name="tun_backend_sing">Sing TUN (آزمایشی)</string>
 </resources>

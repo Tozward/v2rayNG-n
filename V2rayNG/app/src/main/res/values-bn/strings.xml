@@ -575,4 +575,8 @@
     <string name="sub_info_open_page">সাবস্ক্রিপশন তথ্যের পাতা খুলুন</string>
     <string name="sub_info_unlimited">সীমাহীন</string>
 
+    <string name="title_pref_tun_backend">VPN টানেল ইঞ্জিন</string>
+    <string name="tun_backend_xray">Xray TUN</string>
+    <string name="tun_backend_hev">HEV TUN</string>
+    <string name="tun_backend_sing">Sing TUN (পরীক্ষামূলক)</string>
 </resources>

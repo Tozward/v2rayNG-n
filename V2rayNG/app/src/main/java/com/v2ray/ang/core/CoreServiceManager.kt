@@ -154,7 +154,7 @@ object CoreServiceManager {
         } else {
             ""
         }
-        if (SettingsManager.isUsingHevTun()) {
+        if (SettingsManager.isUsingExternalTun()) {
             tunFd = 0
         }
 
@@ -291,6 +291,7 @@ object CoreServiceManager {
 
             coreController.stopLoop()
             launchCore(service, tunFd, isReload = true)
+            serviceControl?.get()?.resetTunNetwork()
 
             LogUtil.i(AppConfig.TAG, "StartCore-Manager: Core reload finished")
             true

@@ -35,4 +35,7 @@ interface ServiceControl {
      * @return True if the networks were accepted.
      */
     fun setUnderlyingNetworks(networks: Array<Network>?): Boolean = false
+
+    /** Clears external stack sessions after the local proxy listener is replaced. */
+    fun resetTunNetwork() {}
 }

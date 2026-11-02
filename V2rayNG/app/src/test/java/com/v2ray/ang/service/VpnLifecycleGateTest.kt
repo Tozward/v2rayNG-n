@@ -6,6 +6,17 @@ import org.junit.jupiter.api.Test
 
 class VpnLifecycleGateTest {
     @Test
+    fun coreStartAloneDoesNotMakeAnUnfinishedTunnelReusable() {
+        val gate = VpnLifecycleGate()
+        assertTrue(gate.tryStart())
+        assertFalse(gate.shouldReuseRunningTunnel(false, true))
+        assertFalse(gate.tryStart())
+        assertTrue(gate.shouldReuseRunningTunnel(true, true))
+        gate.beginStop()
+        assertFalse(gate.shouldReuseRunningTunnel(true, true))
+    }
+
+    @Test
     fun systemRestartReusesOnlyAHealthyTunnel() {
         val gate = VpnLifecycleGate()
 

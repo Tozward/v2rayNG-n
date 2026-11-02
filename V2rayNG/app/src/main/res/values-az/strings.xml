@@ -576,4 +576,8 @@
     <string name="update_install_permission_required">v2rayNG-yə tətbiq quraşdırmağa icazə verin, sonra yenidən cəhd edin.</string>
     <string name="update_install_unavailable">Tətbiq quraşdırıcısı açıla bilmədi.</string>
     <string name="update_check_failed">Yenilənmələr yoxlana bilmədi. Yenidən cəhd edin.</string>
+    <string name="title_pref_tun_backend">VPN tunel mühərriki</string>
+    <string name="tun_backend_xray">Xray TUN</string>
+    <string name="tun_backend_hev">HEV TUN</string>
+    <string name="tun_backend_sing">Sing TUN (eksperimental)</string>
 </resources>

@@ -34,6 +34,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.AppConfig.VPN
 import com.v2ray.ang.R
+import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
@@ -105,6 +106,8 @@ fun SettingsScreen(
     val scrollState = rememberScrollState()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val autoCheckUpdate by viewModel.autoCheckUpdate.collectAsStateWithLifecycle()
+    val tunBackend by viewModel.tunBackend.collectAsStateWithLifecycle()
+    val tunBackendSaveError by viewModel.tunBackendSaveError.collectAsStateWithLifecycle()
     val systemVpnSettingsAvailable by viewModel.systemVpnSettingsAvailable.collectAsStateWithLifecycle()
     var uiSettingsExpanded by rememberSaveable { mutableStateOf(true) }
     var vpnSettingsExpanded by rememberSaveable { mutableStateOf(true) }
@@ -145,7 +148,6 @@ fun SettingsScreen(
 
     var hevTunLogLevel by rememberMmkvString(AppConfig.PREF_HEV_TUNNEL_LOGLEVEL, AppConfig.DEFAULT_HEV_TUNNEL_LOGLEVEL)
     var hevTunRwTimeout by rememberMmkvString(AppConfig.PREF_HEV_TUNNEL_RW_TIMEOUT, "")
-    var useHevTun by rememberMmkvBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
 
     var enableLocalProxy by rememberMmkvBool(AppConfig.PREF_ENABLE_LOCAL_PROXY, true)
     var socksPort by rememberMmkvString(AppConfig.PREF_SOCKS_PORT, "")
@@ -183,8 +185,8 @@ fun SettingsScreen(
     var ipApiUrl by rememberMmkvString(AppConfig.PREF_IP_API_URL, "")
 
     val isVpn = mode == VPN
-    val hevTunEnabled = isVpn && useHevTun
-    val localProxyForced = hevTunEnabled
+    val hevTunEnabled = isVpn && tunBackend == TunBackend.HEV
+    val localProxyForced = isVpn && tunBackend.usesLocalSocks
     val effectiveLocalProxy = enableLocalProxy || localProxyForced
     val muxXudpConcurrencyInt = muxXudpConcurrency.toIntOrNull() ?: AppConfig.DEFAULT_MUX_XUDP_CONCURRENCY.toInt()
 
@@ -378,18 +380,27 @@ fun SettingsScreen(
                     keyboardNumber = true,
                     onValueChanged = { vpnMtu = it }
                 )
-                SettingsSwitchItem(
-                    title = stringResource(R.string.title_pref_use_hev_tunnel),
-                    summary = stringResource(R.string.summary_pref_use_hev_tunnel),
-                    checked = useHevTun,
+                SettingsListItem(
+                    title = stringResource(R.string.title_pref_tun_backend),
+                    entries = listOf(
+                        stringResource(R.string.tun_backend_xray),
+                        stringResource(R.string.tun_backend_hev),
+                        stringResource(R.string.tun_backend_sing)
+                    ),
+                    values = TunBackend.entries.map { it.key },
+                    selectedValue = tunBackend.key,
                     enabled = isVpn,
-                    onCheckedChange = {
-                        useHevTun = it
-                        if (it && !enableLocalProxy) {
-                            enableLocalProxy = true
-                        }
+                    onSelected = { key ->
+                        TunBackend.entries.firstOrNull { it.key == key }?.let(viewModel::setTunBackend)
                     }
                 )
+                if (tunBackendSaveError) {
+                    Text(
+                        text = stringResource(R.string.toast_failure),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
                 SettingsListItem(
                     title = stringResource(R.string.title_pref_hev_tunnel_loglevel),
                     entries = hevLogEntries,

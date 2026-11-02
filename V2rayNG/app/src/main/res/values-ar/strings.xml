@@ -583,4 +583,8 @@
     <string name="sub_info_open_page">فتح صفحة معلومات الاشتراك</string>
     <string name="sub_info_unlimited">غير محدود</string>
 
+    <string name="title_pref_tun_backend">محرك نفق VPN</string>
+    <string name="tun_backend_xray">Xray TUN</string>
+    <string name="tun_backend_hev">HEV TUN</string>
+    <string name="tun_backend_sing">Sing TUN (تجريبي)</string>
 </resources>

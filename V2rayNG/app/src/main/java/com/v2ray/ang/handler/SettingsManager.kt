@@ -17,6 +17,7 @@ import com.v2ray.ang.dto.entities.RulesetItem
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.enums.RoutingType
+import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.enums.VpnInterfaceAddressConfig
 import com.v2ray.ang.extension.moveItem
 import com.v2ray.ang.handler.MmkvManager.decodeAllServerList
@@ -410,9 +411,14 @@ object SettingsManager {
      * Check if HEV TUN is being used.
      * @return True if HEV TUN is used, false otherwise.
      */
-    fun isUsingHevTun(): Boolean {
-        return MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
-    }
+    fun getTunBackend(): TunBackend = TunBackend.fromSettings(
+        MmkvManager.decodeSettingsString(AppConfig.PREF_TUN_BACKEND),
+        MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
+    )
+
+    fun isUsingHevTun(): Boolean = getTunBackend() == TunBackend.HEV
+
+    fun isUsingExternalTun(): Boolean = getTunBackend().usesLocalSocks
 
     /**
      * Check if VPN mode is enabled.
@@ -440,7 +446,7 @@ object SettingsManager {
         }
 
         // Must xray tun
-        if (isUsingHevTun()) {
+        if (isUsingExternalTun()) {
             return false
         }
 
