@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == ''
+    if: github.event_name != 'workflow_dispatch' || inputs.source_run_id == '' || inputs.debug_only
     runs-on: ubuntu-latest
 
     steps:
