@@ -129,8 +129,8 @@ object NotificationManager {
     /**
      * Cancels the notification.
      */
-    fun cancelNotification() {
-        val service = getService() ?: return
+    fun cancelNotification(service: Service? = getService()) {
+        if (service == null) return
         service.stopForeground(Service.STOP_FOREGROUND_REMOVE)
 
         mBuilder = null

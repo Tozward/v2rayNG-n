@@ -198,9 +198,8 @@ object CoreServiceManager {
      * Unregisters broadcast receivers, stops notifications, and shuts down plugins.
      * @return The native stop job. Callers that own a tunnel descriptor must join it before closing.
      */
-    fun stopCoreLoop(): Job {
+    fun stopCoreLoop(service: Service? = getService()): Job {
         connectionTestScope.coroutineContext.cancelChildren()
-        val service = getService()
 
         networkMonitor?.unregister()
         networkMonitor = null
@@ -226,7 +225,7 @@ object CoreServiceManager {
                     LogUtil.e(AppConfig.TAG, "StartCore-Manager: VPN/proxy/root stop failed to stop V2Ray loop", e)
                 } finally {
                     if (service != null) MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
-                    NotificationManager.cancelNotification()
+                    NotificationManager.cancelNotification(service)
                 }
             }
         }

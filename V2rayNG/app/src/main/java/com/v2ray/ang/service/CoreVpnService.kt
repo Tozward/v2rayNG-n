@@ -29,6 +29,7 @@ import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
 import java.lang.ref.SoftReference
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -44,6 +45,7 @@ import kotlinx.coroutines.launch
 class CoreVpnService : VpnService(), ServiceControl {
     private companion object {
         const val ACTION_READY = "${AppConfig.ANG_PACKAGE}.action.VPN_READY"
+        val teardownBarrier = VpnTeardownBarrier()
     }
 
     private var mInterface: ParcelFileDescriptor? = null
@@ -55,9 +57,12 @@ class CoreVpnService : VpnService(), ServiceControl {
     @Volatile private var tunnelReady = false
     private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var teardownJob: Job? = null
+    private val teardownComplete = Job()
+    private var previousTeardown: Job? = null
 
     override fun onCreate() {
         super.onCreate()
+        previousTeardown = teardownBarrier.register(teardownComplete)
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service created")
         val policy = StrictMode.ThreadPolicy.Builder().permitAll().build()
         StrictMode.setThreadPolicy(policy)
@@ -117,6 +122,9 @@ class CoreVpnService : VpnService(), ServiceControl {
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received, systemVpnStart=$isSystemVpnStart")
         val job = setupScope.launch(start = CoroutineStart.LAZY) {
             try {
+                previousTeardown?.join()
+                previousTeardown = null
+                ensureActive()
                 if (!lifecycle.shouldReuseRunningTunnel(
                         tunnelReady, CoreServiceManager.isRunning(), CoreServiceManager.isReloading
                     )) {
@@ -395,9 +403,11 @@ class CoreVpnService : VpnService(), ServiceControl {
         isRunning = false
         tunnelReady = false
 
-        teardownJob = teardownScope.launch {
+        val job = teardownScope.launch(start = CoroutineStart.LAZY) {
             setupJob?.cancelAndJoin()
             setupScope.cancel()
+            previousTeardown?.join()
+            previousTeardown = null
             isRunning = false
             val tunnel = tun2SocksService
             tun2SocksService = null
@@ -414,7 +424,7 @@ class CoreVpnService : VpnService(), ServiceControl {
                 } catch (e: Exception) {
                     LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to stop LAN sharing", e)
                 }
-                CoreServiceManager.stopCoreLoop().join()
+                CoreServiceManager.stopCoreLoop(this@CoreVpnService).join()
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed during VPN teardown", e)
             } finally {
@@ -436,7 +446,12 @@ class CoreVpnService : VpnService(), ServiceControl {
                 }
             }
         }
-        teardownJob?.invokeOnCompletion { teardownScope.cancel() }
+        teardownJob = job
+        job.invokeOnCompletion {
+            teardownComplete.complete()
+            teardownScope.cancel()
+        }
+        job.start()
     }
 
     fun tryLockStart(): Boolean {
@@ -445,6 +460,19 @@ class CoreVpnService : VpnService(), ServiceControl {
 
     fun unlockStart() {
         lifecycle.releaseStart()
+    }
+}
+
+/** Process-wide ordering of service instances; each completion is owned by its service. */
+internal class VpnTeardownBarrier {
+    private val pending = AtomicReference<Job?>()
+
+    fun register(job: Job): Job? {
+        // Register on creation, before a stop can race onDestroy. A replacement
+        // must observe this completion even if cleanup has not been scheduled yet.
+        val previous = pending.getAndSet(job)
+        job.invokeOnCompletion { pending.compareAndSet(job, null) }
+        return previous
     }
 }
 

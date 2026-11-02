@@ -1,10 +1,29 @@
 package com.v2ray.ang.service
 
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import kotlinx.coroutines.Job
 
 class VpnLifecycleGateTest {
+    @Test
+    fun replacementWaitsForThePreviousInstanceCompletion() {
+        val barrier = VpnTeardownBarrier()
+        val first = Job()
+        val second = Job()
+        val third = Job()
+        assertNull(barrier.register(first))
+        assertSame(first, barrier.register(second))
+        first.complete()
+        // An old completion must not erase the newer instance's barrier.
+        assertSame(second, barrier.register(third))
+        second.complete()
+        third.complete()
+        assertNull(barrier.register(Job().apply { complete() }))
+    }
+
     @Test
     fun coreStartAloneDoesNotMakeAnUnfinishedTunnelReusable() {
         val gate = VpnLifecycleGate()
