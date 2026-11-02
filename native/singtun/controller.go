@@ -54,7 +54,7 @@ func (c *Controller) Start(fd, mtu, socksPort int32, ipv4, ipv6, username, passw
 	stack, err := tun.NewGo(tun.StackOptions{
 		Context: ctx, Tun: device, TunOptions: options, Handler: handler,
 		Logger: stackLogger{Logger: logger.NOP()}, UDPTimeout: 60 * time.Second,
-		ICMPTimeout: 10 * time.Second,
+		ICMPTimeout: 10 * time.Second, TCPLocalJumbo: true,
 	})
 	if err == nil {
 		err = device.Start()

@@ -40,9 +40,10 @@ class CoreTunConfigTest {
                 assertNull(inbound.listen)
                 assertSame(sniffing, inbound.sniffing)
                 val settings = json.getAsJsonObject("settings")
-                assertEquals(setOf("name", "mtu", "userLevel", "address"), settings.keySet())
+                assertEquals(setOf("name", "mtu", "userLevel", "address", "tcpLocalJumbo"), settings.keySet())
                 assertEquals(1280, settings["mtu"].asInt)
                 assertEquals(8, settings["userLevel"].asInt)
+                assertEquals(true, settings["tcpLocalJumbo"].asBoolean)
                 assertEquals(
                     listOf("${addresses.ipv4Client}/30") + if (ipv6) listOf("${addresses.ipv6Client}/126") else emptyList(),
                     settings.getAsJsonArray("address").map { it.asString }
@@ -59,6 +60,7 @@ class CoreTunConfigTest {
                 VpnInterfaceAddressConfig.OPTION_1, true)
             val settings = JsonParser.parseString(JsonUtil.toJson(inbound)).asJsonObject.getAsJsonObject("settings")
             assertEquals(mtu, settings["mtu"].asInt)
+            assertEquals(true, settings["tcpLocalJumbo"].asBoolean)
         }
     }
 
@@ -72,6 +74,7 @@ class CoreTunConfigTest {
         assertSame(settings, inbound.settings)
         assertEquals(1400, settings?.mtu)
         assertNull(settings?.address)
+        assertNull(settings?.tcpLocalJumbo)
         assertSame(sniffing, inbound.sniffing)
         listOf(TunBackend.HEV, TunBackend.SING).forEach { backend ->
             assertThrows(IllegalArgumentException::class.java) {
@@ -83,13 +86,25 @@ class CoreTunConfigTest {
     @Test
     fun customExplicitCoreProtocolWinsWithoutAddingOrRewritingAnInbound() {
         listOf("tun" to TunBackend.XRAY, "sing-tun" to TunBackend.SING_NATIVE).forEach { (protocol, expected) ->
-            val json = JsonParser.parseString("""{"inbounds":[{"tag":"user-tun","protocol":"$protocol","settings":{"mtu":1380}}]}""").asJsonObject
-            val original = json.deepCopy()
-            CoreConfigManager.addTunInboundIfAbsent(json) { error("Explicit TUN must not load a template") }
-            assertEquals(original, json)
-            TunBackend.entries.forEach { selected ->
-                assertEquals(expected, CoreConfigManager.resolveTunBackend(CoreConfigManager.explicitTunBackend(json), selected))
+            listOf("", ",\"tcpLocalJumbo\":false", ",\"tcpLocalJumbo\":true").forEach { localJumbo ->
+                val json = JsonParser.parseString("""{"inbounds":[{"tag":"user-tun","protocol":"$protocol","settings":{"mtu":1380$localJumbo}}]}""").asJsonObject
+                val original = json.deepCopy()
+                CoreConfigManager.addTunInboundIfAbsent(json) { error("Explicit TUN must not load a template") }
+                assertEquals(original, json)
+                TunBackend.entries.forEach { selected ->
+                    assertEquals(expected, CoreConfigManager.resolveTunBackend(CoreConfigManager.explicitTunBackend(json), selected))
+                }
             }
+        }
+    }
+
+    @Test
+    fun precedingInboundSettingsKeepLocalJumboAbsentWhenRoundTripped() {
+        listOf("tun", "socks", "sing-tun").forEach { protocol ->
+            val original = """{"tag":"existing","protocol":"$protocol","settings":{"mtu":1500}}"""
+            val inbound = JsonUtil.fromJson(original, V2rayConfig.InboundBean::class.java)!!
+            assertNull(inbound.settings?.tcpLocalJumbo)
+            assertEquals(JsonParser.parseString(original), JsonParser.parseString(JsonUtil.toJson(inbound)))
         }
     }
 

@@ -613,7 +613,8 @@ object CoreConfigManager {
                 name = inbound.settings?.name ?: "sing0",
                 mtu = mtu,
                 userLevel = inbound.settings?.userLevel,
-                address = prefixes
+                address = prefixes,
+                tcpLocalJumbo = true
             )
         } else {
             inbound.settings?.mtu = mtu

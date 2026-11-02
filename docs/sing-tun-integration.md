@@ -30,10 +30,10 @@ Audited source:
 | --- | --- |
 | sing-box reference | `v1.15.0-alpha.13`, `824dbcfb4dd0a95921840b1737b950cde590241e` |
 | sing-tun upstream | `611d83b7a57b4719be45581eb674942ff561de6c` |
-| sing-tun integration fork | `b65f5e94c698d7bea70950fdcc54dd3cb1514a58` |
+| sing-tun integration fork | `3855ec8dcf9cb1eb3036d334b1ecd5be89b14334` |
 | sing | `03a6cce64bf744023af9e2691fb11afd405b9061` |
 | AndroidLibXrayLite | unchanged gitlink `2ffe5f794a32ba15b122e177b5acffc6f11c4959` |
-| Xray-core integration fork | `fca55ba917df7919439897d0d462652cf559a64c` |
+| Xray-core integration fork | `eb5310947c46520eeba7981b8711feb5f8ed9b1a` |
 | Xray upstream baseline for the native integration | `7c8dbcb4bbec7f80d16070069e0b2f7bf3aca62c` |
 
 The SagerNet libraries use GPLv3, compatible with this GPLv3 project. Their
@@ -86,9 +86,18 @@ Android VpnService fd -> Xray sing-tun inbound -> sing-tun NewGo
 ```
 
 `CoreConfigManager` uses the existing `tun` routing tag with portless protocol
-`sing-tun`. Its generated settings contain only `name`, `mtu`, `userLevel` and
-`address`: the Android client IPv4 `/30` prefix and, when enabled, IPv6 `/126`
-prefix. The core also accepts `gso` and `multiQueue`; the app leaves them disabled.
+`sing-tun`. Its generated settings contain `name`, `mtu`, `userLevel`, `address`
+and `tcpLocalJumbo`. Addresses are the Android client IPv4 `/30` prefix and, when
+enabled, IPv6 `/126` prefix. `tcpLocalJumbo` is enabled for these local VPN replies;
+the SOCKS-backed Sing controller enables the same stack option. The GUI MTU still
+controls the VPN interface and negotiated MSS. Eligible plain Linux/Android TUN
+queues may coalesce local TCP payloads up to 61,440 bytes, with normal checksums
+and no virtio/GSO metadata. Loss, retransmission, validated packet-too-big or a
+rejected oversized write disables aggregation for that flow. Other addresses,
+platforms and UDP keep their existing packet sizing. The core CLI option defaults
+to false, and explicit custom inbound settings, including false or an absent
+option, are preserved. The core also accepts `gso` and `multiQueue`; the app leaves
+them disabled.
 It retains the existing sniffing, route-only, DNS/FakeDNS, routing and process
 metadata path. Native mode does not force a local SOCKS listener, and
 `CoreVpnService` starts no separate tun2socks controller for it.
@@ -99,15 +108,18 @@ before the service releases the original. Android still configures routes,
 addresses, DNS, app selection and outbound socket protection. The native core
 does not configure host routing or run another Android service.
 
-TCP initially uses `GoConn.Read`/`Write`, which include copies. At the existing
-freedom/Vision raw-download readiness boundary, after protocol and prefetched
-TLS/padding data are drained, the core may call `GoConn.SpliceDownload`. This
-hands download socket I/O to the native engine, keeps upload in Xray and leaves
-the original outbound socket owned by Xray. UDP enters the same dispatcher with
+TCP initially uses `GoConn.Read` and a borrowed `WriteVector` batch, which include
+copies into existing retransmission storage. Each raw direction is handed over
+independently: download waits for protocol and prefetched TLS/padding data to
+drain; upload waits for a successful final Vision command-2 write and header
+flush. Sniff/timed-read caches must be empty. `SpliceDownload` and `SpliceUpload`
+then connect native storage directly to the raw socket without an Xray buffer
+conversion on those directions. EOF and half-close are independent, and the
+original outbound socket remains owned by Xray. UDP enters the same dispatcher with
 per-destination routing and FakeDNS reply restoration. There is no added SOCKS
 session or forwarding pipe in this path and no end-to-end zero-copy claim.
 
-`GoConn.Splice` and `SpliceDownload` are engine-owned socket I/O, not Linux
+`GoConn.Splice` and the directional APIs are engine-owned socket I/O, not Linux
 `splice(2)`. Existing HEV and SOCKS-backed Sing choices remain available for
 comparison, including Xray's existing TCP kernel-splice path. The
 [matched Linux measurements](https://github.com/Tozward/Xray-core-socks-uds/blob/78b38f0a/docs/native-sing-tun.md#measured-comparison)
@@ -129,7 +141,7 @@ replacement are pinned in `native/singtun/go.mod`/`go.sum`. Go does not inherit 
 dependency module's replacements, so the Android root module declares both
 forks. The APK contains GPL-licensed SagerNet code and its notices whether either
 experimental choice is selected. See the core fork's
-[native integration guide](https://github.com/Tozward/Xray-core-socks-uds/blob/fca55ba917df7919439897d0d462652cf559a64c/docs/native-sing-tun.md)
+[native integration guide](https://github.com/Tozward/Xray-core-socks-uds/blob/eb5310947c46520eeba7981b8711feb5f8ed9b1a/docs/native-sing-tun.md)
 for the dependency patch ledger, socket ownership and update procedure.
 
 ## Lifecycle and packaging

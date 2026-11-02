@@ -48,7 +48,8 @@ data class V2rayConfig(
             var name: String? = null,
 
             var mtu: Int? = null,
-            var address: List<String>? = null
+            var address: List<String>? = null,
+            var tcpLocalJumbo: Boolean? = null
         ) {
             data class SocksAccountBean(
                 var user: String = "",
