@@ -9,12 +9,15 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sagernet/netlink"
 	"golang.org/x/sys/unix"
 )
+
+var kernelTestID atomic.Uint32
 
 // Runs as root on the disposable Linux CI runner, without changing its default route.
 func TestKernelFDTransferResetAndOwnership(t *testing.T) {
@@ -26,7 +29,7 @@ func TestKernelFDTransferResetAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unix.Close(fd)
-	ifr, err := unix.NewIfreq(fmt.Sprintf("sg%d", os.Getpid()))
+	ifr, err := unix.NewIfreq(fmt.Sprintf("sg%d_%d", os.Getpid(), kernelTestID.Add(1)))
 	if err != nil {
 		t.Fatal(err)
 	}

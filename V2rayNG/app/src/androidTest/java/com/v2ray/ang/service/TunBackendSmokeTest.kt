@@ -12,9 +12,11 @@ import androidx.core.content.ContextCompat
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.core.LauncherManager
 import com.v2ray.ang.dto.entities.ProfileItem
+import com.v2ray.ang.dto.entities.RulesetItem
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.enums.TunBackend
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.helper.MessageHelper
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -45,7 +47,13 @@ class TunBackendSmokeTest {
         // External stacks must keep their required SOCKS listener even when
         // the optional user-facing local proxy is disabled. Xray TUN needs none.
         MmkvManager.encodeSettings(AppConfig.PREF_ENABLE_LOCAL_PROXY, false)
-        MmkvManager.encodeRoutingRulesets(mutableListOf())
+        SettingsManager.initAssets(context, context.assets)
+        // A nonempty rule list also prevents a fresh daemon from installing its
+        // default LAN bypass rules over this isolated fixture configuration.
+        MmkvManager.encodeRoutingRulesets(mutableListOf(RulesetItem(
+            id = "ci-tun-smoke", outboundTag = AppConfig.TAG_PROXY, network = "tcp,udp"
+        )))
+        assertTrue("probe must fail without a VPN", shell("sh /data/local/tmp/tun-probe.sh -w 1 198.18.0.9 443").isEmpty())
         val guid = MmkvManager.encodeServerConfig("", ProfileItem.create(EConfigType.SOCKS).apply {
             remarks = "CI loopback fixture"
             server = "10.0.2.2"
@@ -73,7 +81,7 @@ class TunBackendSmokeTest {
                 LauncherManager.startService(context, guid)
                 LauncherManager.startService(context, guid)
                 awaitTransfer(backend)
-                assertEquals(1, Regex("ServiceRecord\\{").findAll(serviceDump()).count())
+                assertEquals(1, Regex("(?m)^\\s*\\* ServiceRecord\\{").findAll(serviceDump()).count())
                 assertTransfer(udp = true)
 
                 val startsBeforeRestart = successes.get()
@@ -135,12 +143,12 @@ class TunBackendSmokeTest {
     }
 
     private fun awaitTransfer(backend: TunBackend) = await("TCP transfer: $backend") {
-        shell("printf tun-smoke | toybox nc -w 1 198.18.0.9 443").trim() == "tun-smoke"
+        shell("sh /data/local/tmp/tun-probe.sh -w 1 198.18.0.9 443").trim() == "tun-smoke"
     }
 
     private fun assertTransfer(udp: Boolean) {
         val flag = if (udp) "-u" else ""
-        assertEquals("tun-smoke", shell("printf tun-smoke | toybox nc $flag -w 2 198.18.0.9 12345").trim())
+        assertEquals("tun-smoke", shell("sh /data/local/tmp/tun-probe.sh $flag -w 2 198.18.0.9 12345").trim())
     }
 
     private fun serviceDump() = shell("dumpsys activity services com.v2ray.ang/.service.CoreVpnService")

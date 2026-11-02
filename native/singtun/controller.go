@@ -83,7 +83,12 @@ func (c *Controller) ResetNetwork() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.run != nil {
+		c.run.handler.udpGate.Lock()
+		defer c.run.handler.udpGate.Unlock()
 		c.run.stack.ResetNetwork()
+		// NAT purge schedules socket closure on the engine. Drain old relays
+		// before admitting new ones for the same UDP tuple after handover.
+		c.run.handler.udpWG.Wait()
 	}
 }
 
@@ -137,10 +142,12 @@ func deviceOptions(fd, mtu, port int32, ipv4, ipv6, username, password string) (
 }
 
 type forwarder struct {
-	client N.Dialer
-	mu     sync.Mutex
-	closed bool
-	wg     sync.WaitGroup
+	client  N.Dialer
+	mu      sync.Mutex
+	closed  bool
+	wg      sync.WaitGroup
+	udpGate sync.RWMutex
+	udpWG   sync.WaitGroup
 }
 
 // Only the Xray listener may be dialed by this adapter. Remote destinations are
@@ -218,7 +225,7 @@ func (h *forwarder) NewConnectionEx(ctx context.Context, conn net.Conn, _, desti
 		if source, ok := conn.(*tun.GoConn); ok {
 			if socket, ok := remote.(*net.TCPConn); ok {
 				spliced = source.Splice(&spliceSocket{Conn: socket, original: socket, closer: socket}, tun.SpliceOptions{
-					OnClose: h.finishSplice(conn, onClose),
+					OnClose: h.finishSplice(conn, onClose, h.wg.Done),
 				})
 				if spliced {
 					return
@@ -235,17 +242,22 @@ func (h *forwarder) NewConnectionEx(ctx context.Context, conn net.Conn, _, desti
 }
 
 func (h *forwarder) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, _, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
+	h.udpGate.RLock()
 	if !h.begin() {
+		h.udpGate.RUnlock()
 		_ = conn.Close()
 		if onClose != nil {
 			onClose(net.ErrClosed)
 		}
 		return
 	}
+	h.udpWG.Add(1)
+	h.udpGate.RUnlock()
+	done := func() { h.udpWG.Done(); h.wg.Done() }
 	spliced := false
 	defer func() {
 		if !spliced {
-			h.wg.Done()
+			done()
 		}
 	}()
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -258,7 +270,7 @@ func (h *forwarder) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn
 			original, isCloser := upstream.(io.Closer)
 			if isSocket && isCloser && offload != nil {
 				spliced = source.Splice(&spliceSocket{Conn: socket, original: original, closer: remote}, tun.SplicePacketOptions{
-					SpliceOptions: tun.SpliceOptions{OnClose: h.finishSplice(conn, onClose)},
+					SpliceOptions: tun.SpliceOptions{OnClose: h.finishSplice(conn, onClose, done)},
 					Timeout:       60 * time.Second, Offload: offload,
 					FrontHeadroom: N.CalculateFrontHeadroom(remote), RearHeadroom: N.CalculateRearHeadroom(remote),
 				})
@@ -276,9 +288,9 @@ func (h *forwarder) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn
 	}
 }
 
-func (h *forwarder) finishSplice(conn io.Closer, onClose N.CloseHandlerFunc) N.CloseHandlerFunc {
+func (h *forwarder) finishSplice(conn io.Closer, onClose N.CloseHandlerFunc, done func()) N.CloseHandlerFunc {
 	return func(err error) {
-		defer h.wg.Done()
+		defer done()
 		_ = conn.Close()
 		if onClose != nil {
 			onClose(err)

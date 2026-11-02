@@ -33,6 +33,21 @@ jobs:
         submodules: 'recursive'
         fetch-depth: '0'
 
+    - name: Setup Go
+      id: go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: native/singtun/go.mod
+        cache-dependency-path: native/singtun/go.sum
+
+    - name: Test Sing TUN adapter
+      working-directory: native/singtun
+      run: |
+        go test -race -timeout 60s ./...
+        go vet ./...
+        go test -race -c -o "$RUNNER_TEMP/singtun.test" .
+        sudo "$RUNNER_TEMP/singtun.test" -test.run TestKernelFD -test.count 20 -test.v -test.timeout 120s
+
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
       with:
@@ -72,21 +87,6 @@ jobs:
     - name: Copy libhevtun
       run: |
         cp -r ${{ github.workspace }}/libs ${{ github.workspace }}/V2rayNG/app
-
-    - name: Setup Go
-      id: go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: native/singtun/go.mod
-        cache-dependency-path: native/singtun/go.sum
-
-    - name: Test Sing TUN adapter
-      working-directory: native/singtun
-      run: |
-        go test -race -timeout 60s ./...
-        go vet ./...
-        go test -race -c -o "$RUNNER_TEMP/singtun.test" .
-        sudo "$RUNNER_TEMP/singtun.test" -test.run TestKernelFD -test.v -test.timeout 30s
 
     - name: Restore integrated core
       id: cache-integrated-core
@@ -235,6 +235,7 @@ jobs:
             adb install $(find emulator-tests -name '*x86_64.apk')
             adb install $(find emulator-tests -name '*androidTest.apk')
             adb shell appops set com.v2ray.ang ACTIVATE_VPN allow
+            adb push tools/ci/tun-probe.sh /data/local/tmp/tun-probe.sh
             adb shell pm grant com.v2ray.ang android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n com.v2ray.ang/.ui.main.MainActivity
             adb logcat -c
