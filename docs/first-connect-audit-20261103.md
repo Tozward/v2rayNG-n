@@ -63,3 +63,48 @@ Neither issue has been established as the reported browser-delay cause. No
 upstream VLESS preconnection, Vision framing or sing-tun engine algorithm is
 changed by these fixes. The on-device test restores the original Sing backend,
 leaves node/DNS/per-app settings intact and does not alter lockscreen policy.
+
+## Later real Edge observation and candidate scope
+
+The actual affected browser is Edge, not the system default browser. Edge is
+in the VPN allowlist and has no enabled Edge-specific process routing rule.
+Only named networking preferences were read; no browsing history, account
+state or full preferences were exported. No explicit secure-DNS override was
+found in those preferences, which does not prove every default is disabled.
+
+At 10:38 the user reported another severe stall. After the phone later
+returned to TOP_SLEEPING, a synthetic Edge-UID client could neither resolve nor
+establish TCP; system policy showed APP_BACKGROUND blocking and none of its
+packets reached TUN. Those measurements are excluded from awake-path diagnosis.
+The GMS-UID positive control's 20 handshake/data packets did reach TUN.
+
+A later unlocked foreground refresh, with system effective blocking NONE,
+was reported normal by the user. Temporary Info logging captured four Google
+sessions, two of which sniffed www.google.com and then received the existing
+Vision UDP/443 rejection. All 39 rejected UDP/443 sessions in that window are
+not assumed to be Google. Logging was restored to warning automatically.
+
+The native UDP adapter had a confirmed handshake-notification omission. The
+candidate uses the existing Xray error tracker and Sing handshake APIs, clears
+the initial snapshot on upstream response, and preserves the original packet
+batching. No Vision policy, preconnect implementation, Sing engine algorithm,
+MTU, user flow or DNS choice is changed. The abandoned custom SOCKS-over-UDS
+protocol is also absent from the pinned core; native forwarding uses neither
+SOCKS nor UDS.
+
+Real Android TUN tests overlaying the same regression on the released core
+showed that an explicit asynchronous-error receiver waited 1.5 seconds on old
+code and received unreachable in approximately 3–7 ms after the fix, in IPv4
+and IPv6. Default UDP readers still did not receive that soft NoRoute error
+immediately. Consequently this is a verified adapter-correctness fix, not a
+verified claim that Edge's QUIC fallback or every reported first-page stall
+is now faster. Browser-specific causation remains incomplete.
+
+Snapshot commit 76975bbd passed [Actions 41567083345](https://github.com/Tozward/v2rayNG-n/actions/runs/41567083345):
+218 tests per distribution, no failures/errors/skips, both debug builds and
+lint, and Android 24/35 instrumentation. The 2.3.15.5 candidate pins core
+93cbbf3e50dec388ed4c7e42cb8dd3f7cf2a8958; its production Go/module files are
+identical to reviewed core 4773658556c1fa515e4e5b30a715eb206c5e2b6f (the intervening
+commit only applies the upstream formatter to tests). Candidate checks are
+recorded after its final build; a successful earlier build is not substituted
+for that pinned-artifact validation.
