@@ -108,3 +108,45 @@ identical to reviewed core 4773658556c1fa515e4e5b30a715eb206c5e2b6f (the interve
 commit only applies the upstream formatter to tests). Candidate checks are
 recorded after its final build; a successful earlier build is not substituted
 for that pinned-artifact validation.
+
+## Candidate verification and phone installation
+
+The final candidate is built from application source
+`9ba74a7abe87efc4d5140f1df5b81182b1fc3f66` with native core
+`93cbbf3e50dec388ed4c7e42cb8dd3f7cf2a8958` and unchanged Sing dependency
+`2c2f8b289bf652b432506e0a6fe50e6ac6bd1fa2`.
+[Application Actions 41573264155](https://github.com/Tozward/v2rayNG-n/actions/runs/41573264155)
+passed both distributions' 218 tests (no failures, errors or skips), Kotlin
+compilation, debug/release assembly, both lint runs, required native files for
+all four ABIs, and Android API24/API35 instrumentation.
+[Core Actions 41572930421](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41572930421)
+passed format/protobuf, ordinary/native dependency boundaries, three-platform
+contracts/races, real Linux descriptor/Vision/preconnect/ICMP regressions and
+the existing matched-path benchmark. Public release creation was not invoked.
+
+The Playstore arm64 signed APK has SHA256
+`b84a684c74fcf32fb4408e80ddb10377e3e5f2548061e6752155401f04cd6e09`.
+Its embedded Go build information confirms the new core pin and unchanged
+Sing pin; all three required native libraries are present. The extra
+`sagernet_fork` tag used in some standalone diagnostics selects exactly the
+same package source inputs as `with_sing_tun` alone in this dependency graph.
+
+The phone accepted the same-signature update and reports version2.3.15.5,
+versionCode4000770. Its existing VPN authorization was reused through the
+existing Android-owned service entry, without lockscreen/security-policy
+changes or a node parameter. The installed-APK probe (explicit asynchronous
+error subscription) changed from a 2.002-second timeout before the update to
+a local unreachable after 2.447 ms afterwards. A subsequent HTTPS204 request
+succeeded, showing that rejection did not stop the tunnel. This still does
+not establish Edge's fallback latency.
+
+The current settings remain Sing native TUN, MTU9000, testpre5, localDNS and
+FakeDNS on, IPv6/HTTP append/mux/fragment off. Warning logging is restored,
+there are no enabled process routing rules, and all disposable UID0 test
+routing rules/interfaces were removed. Node credentials and complete personal
+configuration remained on the phone; recorded browser events and packet-header
+summaries contain no addresses, cookies or page content.
+
+Only this evidence section was appended after the candidate build. Production
+files and module locks remain identical to the compiled source above; no
+additional binary rebuild is needed for this documentation update.
