@@ -185,7 +185,7 @@ jobs:
       working-directory: V2rayNG
       timeout-minutes: 15
       run: |
-        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreTunConfigTest --tests com.v2ray.ang.core.CoreLocalProxyConfigTest --tests com.v2ray.ang.handler.UpdateProxyAuthenticationTest --tests com.v2ray.ang.util.HttpUtilProxyAuthenticationTest --tests com.v2ray.ang.handler.UpdateCacheCleanupTest
+        ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.CoreBackendSnapshotTest --tests com.v2ray.ang.core.CoreTunConfigTest --tests com.v2ray.ang.core.CoreLocalProxyConfigTest --tests com.v2ray.ang.handler.UpdateProxyAuthenticationTest --tests com.v2ray.ang.util.HttpUtilProxyAuthenticationTest --tests com.v2ray.ang.handler.UpdateCacheCleanupTest
         ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.dto.VlessTestpreTest --tests com.v2ray.ang.dto.TunBackendTest --tests com.v2ray.ang.ui.server.ServerVlessViewModelTest --tests com.v2ray.ang.service.NetworkHandoverStateTest --tests com.v2ray.ang.service.VpnLifecycleGateTest --tests com.v2ray.ang.ui.perappproxy.PerAppProxyViewModelTest --tests com.v2ray.ang.util.AppManagerUtilTest --tests com.v2ray.ang.handler.UpdateCheckerManagerTest --tests com.v2ray.ang.helper.MessageHelperTest --tests com.v2ray.ang.ui.checkupdate.CheckUpdateViewModelTest --tests com.v2ray.ang.ui.userasset.UserAssetViewModelTest --tests com.v2ray.ang.ui.settings.SettingsViewModelTest --tests com.v2ray.ang.handler.SubscriptionInfoParserTest --tests com.v2ray.ang.ui.main.MainSubscriptionInfoTest --tests com.v2ray.ang.fmt.Hysteria2FmtTest --tests com.v2ray.ang.root.RootProxyManagerTest
 
     - name: Full unit tests and debug builds for both distributions

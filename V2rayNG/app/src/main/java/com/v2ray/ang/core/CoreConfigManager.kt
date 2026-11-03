@@ -1,6 +1,7 @@
 package com.v2ray.ang.core
 
 import android.content.Context
+import android.os.Build
 import android.text.TextUtils
 import androidx.annotation.StringRes
 import com.google.gson.JsonArray
@@ -33,6 +34,19 @@ object CoreConfigManager {
     private var initConfigCache: String? = null
     private var initConfigCacheWithTun: String? = null
 
+    // A build must not mix a template, reader, DNS tag or result from different settings.
+    private data class TunSettings(
+        val backend: TunBackend,
+        val vpnMode: Boolean,
+        val rootMode: Boolean,
+        val routeOnly: Boolean
+    ) {
+        val vpnServiceMode = SettingsManager.isVpnServiceMode(vpnMode, rootMode)
+        val needTun = SettingsManager.usesCoreTun(backend, vpnMode, rootMode)
+        // Match SettingsManager's process gate using this build's mode/sniffing values.
+        val processRouting = needTun && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && routeOnly
+    }
+
     //region get config function
 
     /**
@@ -46,10 +60,7 @@ object CoreConfigManager {
                     guid = guid,
                     errorMessage = "Failed to build config context"
                 )
-            if (configContext.isCustom) {
-                return buildV2rayCustomConfig(configContext)
-            }
-            return toConfigResult(configContext, buildUnifiedConfig(configContext))
+            return buildConfigResult(configContext)
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to get V2ray config", e)
             return ConfigResult(
@@ -74,13 +85,7 @@ object CoreConfigManager {
                     guid = guid,
                     errorMessage = "Failed to build config context"
                 )
-            if (configContext.isCustom) {
-                return buildV2rayCustomConfig(configContext)
-            }
-            val v2rayConfig = buildUnifiedConfig(configContext)
-            postProcessForSpeedtest(v2rayConfig)
-
-            return toConfigResult(configContext, v2rayConfig)
+            return buildConfigResult(configContext, speedtest = true)
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to get V2ray config for speedtest", e)
             return ConfigResult(
@@ -92,10 +97,21 @@ object CoreConfigManager {
         }
     }
 
+    internal fun buildConfigResult(configContext: CoreConfigContext, speedtest: Boolean = false): ConfigResult {
+        val settings = TunSettings(
+            SettingsManager.getTunBackend(), SettingsManager.isVpnMode(), SettingsManager.isRootMode(),
+            MmkvManager.decodeSettingsBool(AppConfig.PREF_ROUTE_ONLY_ENABLED, false)
+        )
+        if (configContext.isCustom) return buildV2rayCustomConfig(configContext, settings)
+        val config = buildUnifiedConfig(configContext, settings)
+        if (speedtest) postProcessForSpeedtest(config)
+        return toConfigResult(configContext, config, settings)
+    }
+
     /**
      * Build configuration for custom profiles.
      */
-    private fun buildV2rayCustomConfig(configContext: CoreConfigContext): ConfigResult {
+    private fun buildV2rayCustomConfig(configContext: CoreConfigContext, settings: TunSettings): ConfigResult {
         val context = configContext.context
         val raw = MmkvManager.decodeServerRaw(configContext.guid)
             ?: return ConfigResult(
@@ -103,7 +119,8 @@ object CoreConfigManager {
                 guid = configContext.guid,
                 errorMessage = "Failed to build config context, config is empty"
             )
-        val result = ConfigResult(true, configContext.guid, raw)
+        val result = ConfigResult(true, configContext.guid, raw,
+            tunBackend = settings.backend.takeIf { settings.vpnServiceMode })
 
         val json = JsonUtil.parseString(raw)?.takeIf { it.isJsonObject }?.asJsonObject ?: return result
 
@@ -131,17 +148,18 @@ object CoreConfigManager {
             }
         }
 
-        val vpnServiceMode = SettingsManager.isVpnServiceMode()
+        val vpnServiceMode = settings.vpnServiceMode
         val explicitBackend = explicitTunBackend(json, vpnServiceMode)
-        val tunBackend = explicitBackend ?: SettingsManager.getTunBackend()
+        val tunBackend = explicitBackend ?: settings.backend
+        val effectiveSettings = settings.copy(backend = tunBackend)
         if (!vpnServiceMode || tunBackend.usesLocalSocks) {
             return JsonUtil.toJsonPretty(json)?.let {
                 ConfigResult(true, configContext.guid, it, tunBackend = if (vpnServiceMode) tunBackend else null)
-            } ?: result
+            } ?: result.copy(tunBackend = tunBackend.takeIf { vpnServiceMode })
         }
 
         // Check whether package names need to be replaced with UIDs
-        if (SettingsManager.canUseProcessRouting(tunBackend)) {
+        if (effectiveSettings.processRouting) {
             val rulesJson = json.get("routing")?.takeIf { it.isJsonObject }?.asJsonObject
                 ?.get("rules")?.takeIf { it.isJsonArray }?.asJsonArray
                 ?: JsonArray()
@@ -159,8 +177,8 @@ object CoreConfigManager {
         }
 
         addTunInboundIfAbsent(json) {
-            val templateConfig = initV2rayConfig(configContext)
-            if (tunBackend == TunBackend.SING_NATIVE) configureInbounds(templateConfig)
+            val templateConfig = initV2rayConfig(configContext, effectiveSettings)
+            if (tunBackend == TunBackend.SING_NATIVE) configureInbounds(templateConfig, effectiveSettings)
             val inboundTun = templateConfig.inbounds.firstOrNull { it.tag == "tun" }
                 ?: throw CoreTunConfigException(R.string.error_tun_config_invalid, "Missing TUN inbound template")
             if (tunBackend == TunBackend.XRAY) inboundTun.settings?.mtu = SettingsManager.getVpnMtu()
@@ -169,7 +187,7 @@ object CoreConfigManager {
 
         return JsonUtil.toJsonPretty(json)?.let {
             ConfigResult(true, configContext.guid, it, tunBackend = tunBackend)
-        } ?: result
+        } ?: result.copy(tunBackend = tunBackend)
     }
 
     /**
@@ -178,15 +196,15 @@ object CoreConfigManager {
      * The analyzed outbound plan is consumed in order and converted to concrete
      * outbounds before routing, DNS, and runtime extras are assembled.
      */
-    private fun buildUnifiedConfig(configContext: CoreConfigContext): V2rayConfig {
+    private fun buildUnifiedConfig(configContext: CoreConfigContext, settings: TunSettings): V2rayConfig {
         require(configContext.resolvedOutbounds.isNotEmpty()) { "resolvedOutbounds must not be empty for a non-CUSTOM context" }
         val primaryResolvedOutbound = configContext.resolvedOutbounds.first()
 
-        val v2rayConfig = initV2rayConfig(configContext)
+        val v2rayConfig = initV2rayConfig(configContext, settings)
         v2rayConfig.log.loglevel = MmkvManager.decodeSettingsString(AppConfig.PREF_LOGLEVEL) ?: "warning"
         v2rayConfig.remarks = primaryResolvedOutbound.profile.remarks
 
-        configureInbounds(v2rayConfig)
+        configureInbounds(v2rayConfig, settings)
 
         if (v2rayConfig.outbounds.isNotEmpty()) {
             v2rayConfig.outbounds.removeAt(0)
@@ -209,11 +227,11 @@ object CoreConfigManager {
         }
 
         // User routing rules (policyGroupBalancerTags rewrites TAG_PROXY→balancer when main is POLICYGROUP).
-        configureRouting(configContext, v2rayConfig, policyGroupBalancerTags)
+        configureRouting(configContext, v2rayConfig, policyGroupBalancerTags, settings)
         configureFakeDns(v2rayConfig)
         configureDns(configContext, v2rayConfig, policyGroupBalancerTags)
-        configureLocalDns(configContext, v2rayConfig)
-        configureRootModeDns(v2rayConfig)
+        configureLocalDns(configContext, v2rayConfig, settings)
+        configureRootModeDns(v2rayConfig, settings)
 
         // (added by getDns / getCustomLocalDns) to use the balancer, then add
         // the catch-all balancer rule.
@@ -474,14 +492,14 @@ object CoreConfigManager {
     /**
      * Serialize a runtime configuration into a standard result object.
      */
-    private fun toConfigResult(configContext: CoreConfigContext, v2rayConfig: V2rayConfig): ConfigResult {
+    private fun toConfigResult(configContext: CoreConfigContext, v2rayConfig: V2rayConfig, settings: TunSettings): ConfigResult {
         return ConfigResult(
             status = true,
             guid = configContext.guid,
             content = JsonUtil.toJsonPretty(v2rayConfig) ?: "",
-            tunBackend = if (SettingsManager.isVpnServiceMode()) {
+            tunBackend = if (settings.vpnServiceMode) {
                 v2rayConfig.inbounds.mapNotNull { coreTunBackend(it.protocol) }.singleOrNull()
-                    ?: SettingsManager.getTunBackend()
+                    ?: settings.backend
             } else null
         )
     }
@@ -489,10 +507,10 @@ object CoreConfigManager {
     /**
      * Load the base template from cache or assets and parse it.
      */
-    private fun initV2rayConfig(configContext: CoreConfigContext): V2rayConfig {
+    private fun initV2rayConfig(configContext: CoreConfigContext, settings: TunSettings): V2rayConfig {
         val context = configContext.context
         val assets: String
-        if (needTun()) {
+        if (settings.needTun) {
             assets = initConfigCacheWithTun ?: Utils.readTextFromAssets(context, "v2ray_config_with_tun.json")
             if (TextUtils.isEmpty(assets)) {
                 error("Missing asset: v2ray_config_with_tun.json")
@@ -514,10 +532,6 @@ object CoreConfigManager {
 
 
     //region some sub function
-
-    private fun needTun(): Boolean {
-        return SettingsManager.isUsingCoreTun()
-    }
 
     /** One Android descriptor may have only one core reader; explicit custom choices win. */
     internal fun explicitTunBackend(json: JsonObject, vpnServiceMode: Boolean = true): TunBackend? {
@@ -683,10 +697,9 @@ object CoreConfigManager {
     /**
      * Configure inbound listeners and related runtime options.
      */
-    private fun configureInbounds(v2rayConfig: V2rayConfig) {
-        val vpn = SettingsManager.isVpnServiceMode()
-        val forcedByTun = vpn && SettingsManager.isUsingExternalTun()
-        val forcedBySocksRoot = SettingsManager.isRootMode()
+    private fun configureInbounds(v2rayConfig: V2rayConfig, settings: TunSettings) {
+        val forcedByTun = settings.vpnServiceMode && settings.backend.usesLocalSocks
+        val forcedBySocksRoot = settings.rootMode
                 || MmkvManager.decodeSettingsBool(AppConfig.PREF_ROOT_LAN_SHARING)
 
         val enableLocalProxy = forcedByTun || forcedBySocksRoot || MmkvManager.decodeSettingsBool(AppConfig.PREF_ENABLE_LOCAL_PROXY, true)
@@ -720,8 +733,7 @@ object CoreConfigManager {
         val sniffAllTlsAndHttp =
             MmkvManager.decodeSettingsBool(AppConfig.PREF_SNIFFING_ENABLED, true) != false
         inbound1.sniffing?.enabled = fakedns || sniffAllTlsAndHttp
-        inbound1.sniffing?.routeOnly =
-            MmkvManager.decodeSettingsBool(AppConfig.PREF_ROUTE_ONLY_ENABLED, false)
+        inbound1.sniffing?.routeOnly = settings.routeOnly
         if (!sniffAllTlsAndHttp) {
             inbound1.sniffing?.destOverride?.clear()
         }
@@ -744,11 +756,11 @@ object CoreConfigManager {
             v2rayConfig.inbounds.removeIf { it.protocol == "socks" || it.protocol == "http" }
         }
 
-        if (needTun()) {
+        if (settings.needTun) {
             val inboundTun = v2rayConfig.inbounds.firstOrNull { e -> e.tag == "tun" }
             inboundTun?.let {
                 configureTunInbound(
-                    it, SettingsManager.getTunBackend(), SettingsManager.getVpnMtu(),
+                    it, settings.backend, SettingsManager.getVpnMtu(),
                     SettingsManager.getCurrentVpnInterfaceAddressConfig(),
                     MmkvManager.decodeSettingsBool(AppConfig.PREF_IPV6_ENABLED) == true
                 )
@@ -809,7 +821,7 @@ object CoreConfigManager {
     /**
      * Configure local DNS inbounds, outbounds, and routing rules.
      */
-    private fun configureLocalDns(configContext: CoreConfigContext, v2rayConfig: V2rayConfig) {
+    private fun configureLocalDns(configContext: CoreConfigContext, v2rayConfig: V2rayConfig, settings: TunSettings) {
         if (MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED) != true) {
             return
         }
@@ -833,8 +845,8 @@ object CoreConfigManager {
             )
         }
 
-        if (SettingsManager.isVpnServiceMode()) {
-            if (SettingsManager.isUsingExternalTun()) {
+        if (settings.vpnServiceMode) {
+            if (settings.backend.usesLocalSocks) {
                 // External TUN stacks forward DNS through the existing SOCKS inbound.
                 v2rayConfig.routing.rules.add(
                     0, V2rayConfig.RoutingBean.RulesBean(
@@ -875,8 +887,8 @@ object CoreConfigManager {
      * proxy instead of leaking to (or being mis-resolved by) the local network resolver.
      * Independent of the local-DNS toggle, which is not exposed for root mode.
      */
-    private fun configureRootModeDns(v2rayConfig: V2rayConfig) {
-        if (!SettingsManager.isRootMode()) return
+    private fun configureRootModeDns(v2rayConfig: V2rayConfig, settings: TunSettings) {
+        if (!settings.rootMode) return
 
         if (v2rayConfig.routing.rules.none { it.outboundTag == "dns-out" && it.port == "53" }) {
             v2rayConfig.routing.rules.add(
@@ -1348,7 +1360,8 @@ object CoreConfigManager {
     private fun configureRouting(
         configContext: CoreConfigContext,
         v2rayConfig: V2rayConfig,
-        policyGroupBalancerTags: Map<String, String>
+        policyGroupBalancerTags: Map<String, String>,
+        settings: TunSettings
     ) {
 
         v2rayConfig.routing.domainStrategy =
@@ -1357,7 +1370,7 @@ object CoreConfigManager {
 
         val rulesetItems = MmkvManager.decodeRoutingRulesets()
         rulesetItems?.forEach { key ->
-            appendRoutingUserRule(configContext, key, v2rayConfig, policyGroupBalancerTags)
+            appendRoutingUserRule(configContext, key, v2rayConfig, policyGroupBalancerTags, settings)
         }
     }
 
@@ -1368,7 +1381,8 @@ object CoreConfigManager {
         configContext: CoreConfigContext,
         item: RulesetItem?,
         v2rayConfig: V2rayConfig,
-        policyGroupBalancerTags: Map<String, String>
+        policyGroupBalancerTags: Map<String, String>,
+        settings: TunSettings
     ) {
         val context = configContext.context
         if (item == null || !item.enabled) {
@@ -1390,7 +1404,7 @@ object CoreConfigManager {
             rule.ip = updatedIpList
         }
 
-        if (SettingsManager.canUseProcessRouting()) {
+        if (settings.processRouting) {
             // Convert process package names to UIDs
             rule.process?.let { processList ->
                 if (processList.isNotEmpty()) {
