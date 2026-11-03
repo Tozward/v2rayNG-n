@@ -51,3 +51,45 @@ The native core cache key includes the exact application module files. The
 new pin requires a new combined AAR and APK build; previous 2.3.15.5 APKs are
 not reused. Candidate build and installed-artifact evidence are recorded after
 their own checks finish.
+
+## Candidate artifact verification
+
+[Application build41663427972](https://github.com/Tozward/v2rayNG-n/actions/runs/41663427972),
+source `fd57fad7e66668416975acc2913de960c4a48a9e`, passed both distributions'
+218 unit tests (zero failures, errors and skips), compilation, debug/release
+assembly, lint, four-ABI native-input checks and Android API24/API35 VPN
+instrumentation. Formal release creation was not invoked.
+
+The Playstore arm64 APK is32928570 bytes, SHA256
+`96419d07084afb26c7d1ffabc14e14da8229993786732d2d66087fffa244680a`.
+Its embedded Go build information reports the exact core93e7cbb2 pin/checksum,
+unchanged Sing2c2f8b28 pin, GOOSandroid, GOARCHarm64 and with_sing_tun build tag.
+The native-library names match the preceding candidate. This APK is736 bytes
+larger than the preceding Playstore arm64 candidate; no new dependency is added.
+
+Core verification source705e3365 changes only tests, CI and documentation from
+the pinned93e7cbb2. All production Go source and module files compare equal.
+[Core run41665416255](https://github.com/Tozward/Xray-core-socks-uds/actions/runs/41665416255)
+passed Linux (including real-TUN race tests, genuine protocol controls and the
+existing benchmark), Windows and formatting. Its hosted macOS job was still
+queued at this record; local macOS ordinary/native builds, default/tagged race
+regressions and scoped vet passed. The pending hosted job is not reported as a
+completed CI check.
+
+The first Linux job41662649266 exposed concurrent accesses to the unchanged
+Vision filter counter. Source comparison matches upstream7c8dbcb4, but a pure
+official macOS control did not independently reproduce that runtime race. The
+new routing component regression therefore uses verified TLS/direct forwarding
+under race detection, while genuine Vision remains a mandatory separate
+non-race protocol control. This does not claim a race-free upstream Vision
+implementation; no additional Vision repair was included in this approval.
+
+Fresh phone checks of these separated controls pass160 further connections.
+The phone continues to run its original2.3.15.5 application and VPN process;
+the candidate was not installed and no node or user setting was changed. All
+disposable interfaces and priority9998 test rules were removed. The public
+latest release remains2.3.15.5.
+
+Only this evidence section was appended after the candidate build. Executable
+sources and module locks remain identical to that build; no rebuild is needed
+for this documentation addition.
