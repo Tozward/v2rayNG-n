@@ -150,3 +150,67 @@ summaries contain no addresses, cookies or page content.
 Only this evidence section was appended after the candidate build. Production
 files and module locks remain identical to the compiled source above; no
 additional binary rebuild is needed for this documentation update.
+
+## Long-running candidate and formal-release review
+
+At 21:28 CST on 2026-11-03, the installed 2.3.15.5 daemon was still PID12699,
+with elapsed time 09:27:08 and CPU time 00:03:39. This is process continuity,
+not a battery-energy measurement. The named settings above remained unchanged.
+No VPN restart, node/backend change, temporary logging change, security-policy
+change or personal-browser operation was needed for this follow-up.
+
+The retained current-daemon logs covered approximately 21:11–21:27, with 136
+Info entries and no Warning/Error/Fatal entries or pre-connect failures. The
+ring buffers do not preserve all nine hours, so absence of errors is claimed
+only for that retained interval. Historical crash-buffer references to the
+APK include standalone app_process diagnostics; they are not counted as a
+crash of the continuously running application daemon. A later targeted
+classification found 113 such references in standalone app_process reports
+and one with incomplete old context; all 114 predate this daemon's start.
+
+The complete app path was reread: persisted editor/imported testpre value,
+MMKV ProfileItem, CoreOutboundBuilder's settings.testpre, libv2ray JSON loading,
+the pinned VLESS account, and the original outbound preconnection pool. The
+pool and TCP/TLS/REALITY dial code match upstream 7c8dbcb4. Native upload
+handoff changes are later, after taking a preconnection and committing the
+required Vision transition and buffered data. Both backends share this
+outbound. No new application or core production changes were required.
+
+Upstream's design is lazy: the first Process starts five workers, each offers
+one already-dialed connection, then waits 200ms after handing it off before
+replenishing. Connections expire after two minutes, checked when taken. This
+prepares the connection to the proxy server, not target-site DNS/TLS/HTTP.
+Cold starts, stale pools, bursts and original Vision UDP443 rejection can
+still add work; these are not proven causes of a particular reported delay.
+The previously recorded upstream Close/send race boundary remains unchanged.
+
+Six fixed public HTTPS204 requests, without cookies or browser state, all
+succeeded on the existing daemon. Three VPN-allowlisted GMS-UID requests
+through the complete native TUN took 444.042, 422.561 and 493.557ms; DNS was
+4.835–11.509ms. Three independent requests through the daemon's local HTTP
+entry took 484.512, 481.073 and 458.589ms. The latter bypass TUN and are not
+presented as native-path timings. Android's public CA directory was explicitly
+provided to the standalone Go client; earlier diagnostic attempts without
+that directory failed client TLS verification and are excluded from latency
+and application-failure conclusions.
+
+A phone-local 26.4-second socket observation, exporting only aggregate counts,
+saw six selected-node established sockets before requests, six new sockets
+appearing as requests progressed, and six established sockets again after
+completion. This supports continued pool consumption/replenishment alongside
+the source audit; six total sockets are not claimed to be six idle pool slots,
+nor does this read the private channel's exact occupancy. No endpoint,
+credential, payload, account state or browsing history was exported.
+
+Focused REALITY first-request tests were rerun three times with testpre0/5:
+18 connections and 54 small requests passed, as did pending-preconnect Close
+in both feature orders. Focused native handoff/buffering/cancellation tests
+across four packages passed three race-enabled repetitions. The real-TUN
+handoff evidence and the complete candidate build gates above remain from the
+same unchanged production source. No new throughput or battery claim is made.
+
+The formal v2.3.15.5 release reuses signed build41573264155, source9ba74a7a.
+The follow-up changes only this audit record; no rebuild or phone reinstall
+is needed. Existing 2.3.15.5 candidate installations and formal assets have
+the same version and binary. The occasional remaining browser-first-load
+delay has not been reproduced or assigned a complete cause by these checks.
