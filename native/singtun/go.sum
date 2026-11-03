@@ -1,5 +1,5 @@
-github.com/Tozward/Xray-core-socks-uds v0.0.0-20261103033337-93cbbf3e50de h1:c33xLOYk2sL1KzdRiS9SMCfT0E2wVGmvCpukTrdpn6k=
-github.com/Tozward/Xray-core-socks-uds v0.0.0-20261103033337-93cbbf3e50de/go.mod h1:ND/8tt9ZwwjdOjzJopc9BaRAz9SCIZemsvb+x4AX3EA=
+github.com/Tozward/Xray-core-socks-uds v0.0.0-20261103151910-93e7cbb2fc8d h1:anR1PR5bu27XhKWgwajMlXc7DzKDFWmNhNLeclDbtLo=
+github.com/Tozward/Xray-core-socks-uds v0.0.0-20261103151910-93e7cbb2fc8d/go.mod h1:ND/8tt9ZwwjdOjzJopc9BaRAz9SCIZemsvb+x4AX3EA=
 github.com/Tozward/sing-tun v0.9.7-0.20261102194020-2c2f8b289bf6 h1:gW+DY8hbDRbFaNSJMTKf6Vj+EvZTBCKXEG9JiLYrC8U=
 github.com/Tozward/sing-tun v0.9.7-0.20261102194020-2c2f8b289bf6/go.mod h1:liMb9HPIWcFWqF6VJ/ttIY8fTSRPdRltBeSeEcXt1Dk=
 github.com/andybalholm/brotli v1.2.3 h1:8H1qwOkl2LPfjf3YezB90JnCliZb6SInJ/OJkEbA5NQ=
