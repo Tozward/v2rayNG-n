@@ -93,3 +93,18 @@ latest release remains2.3.15.5.
 Only this evidence section was appended after the candidate build. Executable
 sources and module locks remain identical to that build; no rebuild is needed
 for this documentation addition.
+
+## Release readiness and per-app policy decision (2026-11-04)
+
+The previously pending hosted macOS job in core run41665416255 completed
+successfully. All required jobs in that workflow are now green. Application
+executable sources remain identical to successful build41663427972.
+
+Android resolves VpnService per-app package lists to UID ranges when a VPN is
+established. Uninstall/reinstall can change a selected package's UID without
+changing its persisted selection; restarting the VPN reapplies the selection.
+See https://developer.android.com/develop/connectivity/vpn#per-app .
+An automatic package-event refresh was considered, but the user explicitly
+chose manual restart over maintaining an additional event listener. Its
+uncommitted prototype was withdrawn in full; no receiver, worker, polling,
+per-app behavior change or new dependency is included in this release.
